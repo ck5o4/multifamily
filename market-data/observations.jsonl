@@ -1,0 +1,10 @@
+{"date": "2026-08-02", "slug": "audubon-park-zachary", "name": "Audubon Park Zachary", "ok": false, "http": "403"}
+{"date": "2026-08-02", "slug": "palms-at-sunset-lakes-zachary", "name": "Palms at Sunset Lakes Zachary", "ok": false, "http": "403"}
+{"date": "2026-08-02", "slug": "parc-at-denham-springs", "name": "Parc at Denham Springs", "ok": true, "units": [], "concessions": ["Limited Time", "MONTH FREE"], "n": 0, "min": null, "max": null}
+{"date": "2026-08-02", "slug": "arden-park-denham-springs", "name": "Arden Park Denham Springs", "ok": false, "http": "403"}
+{"date": "2026-08-02", "slug": "spring-tree-denham-springs", "name": "Spring Tree Denham Springs", "ok": true, "units": [], "concessions": [], "n": 0, "min": null, "max": null}
+{"date": "2026-08-02", "slug": "village-at-juban-lakes", "name": "Village at Juban Lakes", "ok": false, "http": "403"}
+{"date": "2026-08-02", "slug": "creekside-crossing-walker", "name": "Creekside Crossing Walker", "ok": true, "units": [{"beds": null, "price": 1000.0, "src": "heuristic", "name": null}], "concessions": [], "n": 1, "min": 1000.0, "max": 1000.0}
+{"date": "2026-08-02", "slug": "sawgrass-point-gonzales", "name": "Sawgrass Point Gonzales", "ok": false, "http": "403"}
+{"date": "2026-08-02", "slug": "silver-oaks-gonzales", "name": "Silver Oaks Gonzales", "ok": false, "http": "403"}
+{"date": "2026-08-02", "slug": "mansions-at-ivy-lake-gonzales", "name": "Mansions at Ivy Lake Gonzales", "ok": true, "units": [], "concessions": ["Special Offer", "month free"], "n": 0, "min": null, "max": null}
