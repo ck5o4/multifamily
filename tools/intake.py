@@ -327,10 +327,17 @@ def main():
         strategies.compare(dest, spec)
 
     if args.solve_price and args.model == "acq" and args.price:
-        fixed = {k: scal[k] for k in (
-            "exit_cap", "reno_units", "reno_cost_per_unit", "reno_premium_month",
-            "reno_units_per_year", "reno_downtime_months", "reno_start_year",
-            "refi_year", "mgmt_pct", "insurance") if k in scal and scal[k] is not None}
+        # exit_cap goes into fixed ONLY if the user explicitly --set it. When it
+        # was derived (going-in-at-ASK + 50bps), freezing it would let the solver
+        # sell every trial price into the ask's cap - unearned compression that
+        # inflated solve IRRs by 2-3pts (bug found by pymodel cross-check
+        # 2026-08-02). solve.py re-derives per-iteration when it is not fixed.
+        fixed_keys = ["reno_units", "reno_cost_per_unit", "reno_premium_month",
+                      "reno_units_per_year", "reno_downtime_months", "reno_start_year",
+                      "refi_year", "mgmt_pct", "insurance"]
+        if "exit_cap" in overrides:
+            fixed_keys.append("exit_cap")
+        fixed = {k: scal[k] for k in fixed_keys if k in scal and scal[k] is not None}
         work = dest.parent / f"__solve_{args.deal}.xlsx"
         print("\n  PRICE SOLVER (what you would have to pay)")
         for label, target in (("13% - pursue threshold", 0.13),

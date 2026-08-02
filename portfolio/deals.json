@@ -46,6 +46,11 @@
         "date": "2026-08-02",
         "stage": "underwriting",
         "note": "1.30 DSCR rerun: solve prices unchanged (521k/476k/426k), same LTV-binding logic"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "CORRECTED ladder via verified pymodel (workbook solver had frozen-exit-cap bug, now fixed): pursue 499k / strong 460k / ideal 395k. MC pending docs"
       }
     ],
     "plan": null,
@@ -113,6 +118,11 @@
         "date": "2026-08-02",
         "stage": "underwriting",
         "note": "exit-valuation stress 2026-08-02: at 1.078M basis, even a lot-rent-only exit buyer (equiv 15% exit cap on full NOI) leaves 14.1% IRR / 1.62x - deal survives worst realistic exit; upside case 22.6%. Cash yield carries it, not exit"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "CORRECTED ladder via pymodel from ask: pursue 1.394M (18% off) / strong 1.279M / ideal 1.094M. MC at 1.078M basis: P10 15.6% P50 20.0% P90 24.1%, P(>=13%)=97.2%. Tornado: rents-5% and insurance+50% are the two kill factors -> diligence priorities"
       }
     ],
     "plan": null,
