@@ -1,0 +1,25 @@
+{
+  "name": "baker-then-fourplex",
+  "starting_equity": 300000,
+  "annual_savings_contribution": 0,
+  "deals": [
+    {
+      "name": "Baker Trails",
+      "deal": "baker-trails",
+      "year": 0,
+      "price": 499000,
+      "location": "baker"
+    },
+    {
+      "name": "Gonzales Fourplex",
+      "year": 2,
+      "price": 400000,
+      "location": "gonzales",
+      "inputs": {
+        "unit_mix": [
+          {"units": 4, "sf": 950, "rent": 1100}
+        ]
+      }
+    }
+  ]
+}

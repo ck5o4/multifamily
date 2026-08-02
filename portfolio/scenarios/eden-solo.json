@@ -1,0 +1,13 @@
+{
+  "name": "eden-solo",
+  "starting_equity": 300000,
+  "annual_savings_contribution": 0,
+  "deals": [
+    {
+      "name": "Eden Church MHP",
+      "deal": "eden-church-mhp",
+      "year": 0,
+      "price": 1094000
+    }
+  ]
+}
