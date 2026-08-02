@@ -1,0 +1,26 @@
+[
+  {
+    "listing": "Eden Church MHP 30263 Eden Church Rd",
+    "date": "2026-08-02",
+    "type": "mhp-park-owned",
+    "claimed_cap": 11.5,
+    "honest_cap": 7.26,
+    "inflation_pts": 4.24
+  },
+  {
+    "listing": "Weber City MHP 43519 Weber City Rd",
+    "date": "2026-08-02",
+    "type": "mhp-park-owned",
+    "claimed_cap": 9.33,
+    "honest_cap": 4.46,
+    "inflation_pts": 4.87
+  },
+  {
+    "listing": "Baker Trails 5087 Baker Blvd",
+    "date": "2026-08-02",
+    "type": "multifamily",
+    "claimed_cap": 6.5,
+    "honest_cap": 6.5,
+    "inflation_pts": 0.0
+  }
+]

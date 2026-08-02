@@ -85,6 +85,26 @@ def cmd_report(args):
               "(negative = our model values below what buyers actually paid)")
 
 
+ASKCAPS = pathlib.Path(__file__).resolve().parent.parent / "portfolio" / "askcaps.json"
+
+
+def cmd_askcap(args):
+    """Broker-inflation index: claimed cap vs our honest screened cap."""
+    entries = json.loads(ASKCAPS.read_text()) if ASKCAPS.exists() else []
+    entries.append({"listing": args.listing, "date": args.date,
+                    "type": args.type, "claimed_cap": args.claimed,
+                    "honest_cap": args.honest,
+                    "inflation_pts": round(args.claimed - args.honest, 2)})
+    ASKCAPS.write_text(json.dumps(entries, indent=2))
+    print(f"logged: {args.listing} claimed {args.claimed:.2f}% vs honest "
+          f"{args.honest:.2f}% (+{args.claimed - args.honest:.1f}pts inflation)")
+    by_type = {}
+    for e in entries:
+        by_type.setdefault(e["type"], []).append(e["inflation_pts"])
+    for t, pts in sorted(by_type.items()):
+        print(f"  {t}: n={len(pts)}, avg inflation {sum(pts)/len(pts):+.1f}pts")
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -103,6 +123,13 @@ def main():
     a.set_defaults(func=cmd_add)
     r = sub.add_parser("report")
     r.set_defaults(func=cmd_report)
+    c = sub.add_parser("askcap")
+    c.add_argument("listing")
+    c.add_argument("--claimed", type=float, required=True, help="broker's stated cap, e.g. 11.5")
+    c.add_argument("--honest", type=float, required=True, help="our screened honest cap")
+    c.add_argument("--type", required=True, help="multifamily / mhp-park-owned / mhp-lot-rent / portfolio")
+    c.add_argument("--date", required=True)
+    c.set_defaults(func=cmd_askcap)
     args = ap.parse_args()
     args.func(args)
 
