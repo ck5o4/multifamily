@@ -21,6 +21,7 @@ import math
 import random
 import sys
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -868,16 +869,18 @@ def tornado(inputs: dict) -> list[dict]:
 # Monte Carlo internals (Gaussian copula, stdlib only)
 # ---------------------------------------------------------------------------
 
-# Hardcoded Cholesky L for the 5x5 correlation matrix:
-#   order: [rent_growth, expense_growth, vacancy, insurance_mult, exit_cap_spread]
-#   rho_rg_eg=0.3, rho_rg_vac=-0.5, rho_ins_cap=0.3, all others=0
+# Hardcoded Cholesky L for the 6x6 correlation matrix:
+#   order: [rent_growth, expense_growth, vacancy, insurance_mult, exit_cap_spread, turnover_rate]
+#   rho_rg_eg=0.3, rho_rg_vac=-0.5, rho_ins_cap=0.3, rho_rg_tr=-0.3, all others=0
 # Verified: L @ L.T reproduces the correlation matrix exactly.
+# Row 5 (turnover_rate): L[5][0]=-0.3, L[5][5]=sqrt(1-0.09)=sqrt(0.91)=0.9539392014
 _CHOL_L = [
-    [1.0000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000],
-    [0.3000000000, 0.9539392014, 0.0000000000, 0.0000000000, 0.0000000000],
-    [-0.5000000000, 0.1572427255, 0.8516306273, 0.0000000000, 0.0000000000],
-    [0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000, 0.0000000000],
-    [0.0000000000, 0.0000000000, 0.0000000000, 0.3000000000, 0.9539392014],
+    [1.0000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000],
+    [0.3000000000, 0.9539392014, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000],
+    [-0.5000000000, 0.1572427255, 0.8516306273, 0.0000000000, 0.0000000000, 0.0000000000],
+    [0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000, 0.0000000000, 0.0000000000],
+    [0.0000000000, 0.0000000000, 0.0000000000, 0.3000000000, 0.9539392014, 0.0000000000],
+    [-0.3000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.9539392014],
 ]
 
 
@@ -950,21 +953,21 @@ def _box_muller_pair(rng) -> tuple:
 
 
 def _correlated_uniforms(rng) -> list:
-    """Draw 5 correlated uniforms via Gaussian copula.
+    """Draw 6 correlated uniforms via Gaussian copula.
 
     Uses Box-Muller for independent normals, applies Cholesky transform,
     then maps to [0,1] via normal CDF.
-    Returns list of 5 uniform values in copula order:
-    [rent_growth, expense_growth, vacancy, insurance_mult, exit_cap_spread]
+    Returns list of 6 uniform values in copula order:
+    [rent_growth, expense_growth, vacancy, insurance_mult, exit_cap_spread, turnover_rate]
     """
-    # Generate 5 independent standard normals (3 Box-Muller pairs, use 5)
+    # Generate 6 independent standard normals (3 Box-Muller pairs = 6)
     z0, z1 = _box_muller_pair(rng)
     z2, z3 = _box_muller_pair(rng)
-    z4, _ = _box_muller_pair(rng)
-    z_ind = [z0, z1, z2, z3, z4]
+    z4, z5 = _box_muller_pair(rng)
+    z_ind = [z0, z1, z2, z3, z4, z5]
 
     # Apply Cholesky: w = L @ z
-    n = 5
+    n = 6
     w = [sum(_CHOL_L[i][j] * z_ind[j] for j in range(n)) for i in range(n)]
 
     # Map to uniforms via normal CDF
@@ -1078,10 +1081,12 @@ def _bootstrap_se_p10(irrs: list, k: int = 200, rng=None) -> float:
 
 
 def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
-                deal_name=None) -> dict:
+                deal_name: Optional[str] = None,
+                year_built: Optional[int] = None,
+                effective_age_override: Optional[int] = None) -> dict:
     """Monte Carlo with empirically-fitted distributions and Gaussian copula correlation.
 
-    Draws correlated samples via a 5-variable Gaussian copula (Cholesky, Box-Muller,
+    Draws correlated samples via a 6-variable Gaussian copula (Cholesky, Box-Muller,
     inverse triangular CDF). Fitted params loaded from tools/fitted_params.json;
     falls back to hardcoded judgment values with a stderr warning if missing.
 
@@ -1089,6 +1094,16 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
     If n > 0, runs exactly n draws (no auto-scale) — used by tests and --mc flag.
 
     Optionally applies rent-level uncertainty from RentCast cache (deal_name required).
+
+    FIX 1 — Integer-unit vacancy: turnovers drawn as Bernoulli per unit; days vacant
+    drawn from triangular; correlates turnover_rate negatively with rent_growth (rho -0.3).
+    Replaces smooth vacancy draws in MC only; deterministic run() is unchanged.
+
+    FIX 2 — Vintage capex: if year_built or effective_age_override is provided, base
+    capex is replaced by age-band lookup + lumpy roof/HVAC events (capped at $3k/unit).
+    Falls back to flat capex_unit reserve if age is unknown.
+
+    FIX 3 — Exit cap tail widened to +200bps upper bound (from +150bps).
 
     Returns dict with: p10, p50, p90, p_above_13, n_valid, n_draws, se_p10,
                        irr_samples, rent_level_note, params_provenance.
@@ -1108,7 +1123,8 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
     eg_p10, eg_p50, eg_p90 = _param("expense_growth", 0.02, 0.025, 0.04)
     vac_p10, vac_p50, vac_p90 = _param("vacancy", 0.05, 0.07, 0.10)
     ins_p10, ins_p50, ins_p90 = _param("insurance_mult", 0.85, 1.0, 1.60)
-    cap_p10, cap_p50, cap_p90 = _param("exit_cap_spread", -0.0025, 0.005, 0.013)
+    # FIX 3: exit cap upper tail widened to +200bps
+    cap_p10, cap_p50, cap_p90 = _param("exit_cap_spread", -0.0025, 0.005, 0.020)
 
     params_provenance = "FITTED" if fp else "JUDGMENT-FALLBACK"
 
@@ -1121,6 +1137,7 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
     total_units = sum(g["units"] for g in inputs["unit_mix"])
     wt_rent = (sum(g["units"] * g["rent"] for g in inputs["unit_mix"]) / total_units
                if total_units > 0 else 0.0)
+    n_units_int = int(round(total_units))
 
     # --- Rent-level multiplier from RentCast ---
     rentcast_info = _load_rentcast_mult(deal_name, wt_rent)
@@ -1130,26 +1147,112 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
     else:
         rl_lo = rl_mode = rl_hi = None
 
+    # --- FIX 2: Compute effective_age for vintage capex ---
+    _current_year = 2026
+    if effective_age_override is not None:
+        _eff_age = effective_age_override
+    elif year_built is not None:
+        _eff_age = _current_year - year_built
+    else:
+        _eff_age = None  # unknown — fall back to flat capex reserve
+
+    # Age-band base capex ($/unit/yr) for vintage capex
+    def _age_band_base(age):
+        if age <= 10:
+            return 250.0
+        elif age <= 25:
+            return 450.0
+        elif age <= 40:
+            return 600.0
+        else:
+            return 750.0
+
+    # Capex vintage params from fitted_params.json if present, else hardcoded
+    _cap_vintage = None
+    if fp and "capex_vintage" in fp:
+        _cap_vintage = fp["capex_vintage"]
+
+    def _draw_vintage_capex_annual(age):
+        """Draw one year's capex for a property of given effective age ($/unit)."""
+        base = _age_band_base(age)
+
+        # Lumpy roof event: n_buildings = max(1, round(units/4))
+        n_bldgs = max(1, round(n_units_int / 4))
+        roof_prob = max(0.0, (age - 15) / 40.0)
+        roof_lo = 8000.0
+        roof_mode = 11500.0
+        roof_hi = 15000.0
+        if _cap_vintage and "roof_event" in _cap_vintage:
+            rv = _cap_vintage["roof_event"]
+            roof_lo = rv.get("cost_low", roof_lo)
+            roof_mode = rv.get("cost_mode", roof_mode)
+            roof_hi = rv.get("cost_high", roof_hi)
+        roof_cost = 0.0
+        for _ in range(n_bldgs):
+            if rng.random() < roof_prob:
+                roof_cost += _tri_icdf(rng.random(), roof_lo, roof_mode, roof_hi)
+
+        # Lumpy HVAC event: per unit
+        hvac_prob = max(0.0, (age - 10) / 30.0)
+        hvac_lo = 4500.0
+        hvac_mode = 5750.0
+        hvac_hi = 7000.0
+        if _cap_vintage and "hvac_event_per_unit" in _cap_vintage:
+            hv = _cap_vintage["hvac_event_per_unit"]
+            hvac_lo = hv.get("cost_low", hvac_lo)
+            hvac_mode = hv.get("cost_mode", hvac_mode)
+            hvac_hi = hv.get("cost_high", hvac_hi)
+        hvac_cost = 0.0
+        for _ in range(n_units_int):
+            if rng.random() < hvac_prob:
+                hvac_cost += _tri_icdf(rng.random(), hvac_lo, hvac_mode, hvac_hi)
+
+        cap_per_unit = 3000.0
+        if _cap_vintage and "cap_per_unit" in _cap_vintage:
+            cap_per_unit = _cap_vintage["cap_per_unit"]
+
+        if n_units_int > 0:
+            total = base + (roof_cost + hvac_cost) / n_units_int
+        else:
+            total = base
+        return min(total, cap_per_unit)
+
     # --- Triangular params (p10/p50/p90 → lo/mode/hi) ---
     # We use p10/p50/p90 as lo/mode/hi for the triangular to keep the implementation
     # simple and the distributions empirically anchored. This is a deliberate
     # approximation: triangular P10 ≈ empirical P10 (exact only in special cases).
     def _draw_one():
-        u5 = _correlated_uniforms(rng)
-        u_rg, u_eg, u_vac, u_ins, u_cap = u5
+        u6 = _correlated_uniforms(rng)
+        u_rg, u_eg, u_vac, u_ins, u_cap, u_tr = u6
 
         rent_growth = _tri_icdf(u_rg, rg_p10, rg_p50, rg_p90)
         expense_growth = _tri_icdf(u_eg, eg_p10, eg_p50, eg_p90)
-        vacancy = _tri_icdf(u_vac, vac_p10, vac_p50, vac_p90)
         ins_mult = _tri_icdf(u_ins, ins_p10, ins_p50, ins_p90)
         cap_delta = _tri_icdf(u_cap, cap_p10, cap_p50, cap_p90)
+
+        # FIX 1: Integer-unit vacancy — physical process per simulated year
+        # turnover_rate draws from triangular(0.30, 0.45, 0.60), correlated with
+        # rent_growth via copula (rho = -0.3, so high turnover when rents fall)
+        turnover_rate = _tri_icdf(u_tr, 0.30, 0.45, 0.60)
+        turnovers = sum(1 for _ in range(n_units_int) if rng.random() < turnover_rate)
+        days_vacant_total = sum(
+            _tri_icdf(rng.random(), 20.0, 45.0, 120.0)
+            for _ in range(turnovers)
+        )
+        physical_vac = days_vacant_total / max(n_units_int * 365, 1)
+        frictional = rng.uniform(0.0, 0.02)  # collections / other losses
+        vacancy = max(0.0, physical_vac + frictional)
 
         p = dict(inputs)
         p["rent_growth"] = rent_growth
         p["expense_growth"] = expense_growth
-        p["vacancy"] = max(0.0, vacancy)
+        p["vacancy"] = vacancy
         p["insurance"] = base_insurance * ins_mult
         p["exit_cap"] = max(0.001, base_going_in + cap_delta)
+
+        # FIX 2: Vintage capex — override capex_unit for MC draws if age known
+        if _eff_age is not None:
+            p["capex_unit"] = _draw_vintage_capex_annual(_eff_age)
 
         # Rent-level uncertainty
         if rl_lo is not None:

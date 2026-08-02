@@ -2,12 +2,13 @@
   "_meta": {
     "description": "Empirically-fitted MC input distributions for pymodel.py monte_carlo(). Loaded at runtime; missing file falls back to hardcoded judgment values with stderr warning.",
     "fit_date": "2026-08-01",
-    "correlation_matrix_note": "5x5 Gaussian copula (judgment): rg/eg +0.3, rg/vac -0.5, ins/cap +0.3, all others 0. Adjust here to re-run sensitivity.",
+    "correlation_matrix_note": "6x6 Gaussian copula (judgment): rg/eg +0.3, rg/vac -0.5, ins/cap +0.3, rg/turnover -0.3, all others 0. Adjust here to re-run sensitivity.",
     "correlation_matrix": {
-      "order": ["rent_growth", "expense_growth", "vacancy", "insurance_mult", "exit_cap_spread"],
+      "order": ["rent_growth", "expense_growth", "vacancy", "insurance_mult", "exit_cap_spread", "turnover_rate"],
       "rho_rg_eg": 0.3,
       "rho_rg_vac": -0.5,
-      "rho_ins_cap": 0.3
+      "rho_ins_cap": 0.3,
+      "rho_rg_tr": -0.3
     }
   },
   "rent_growth": {
@@ -40,7 +41,7 @@
   },
   "vacancy": {
     "source": "RRVRUSQ156N",
-    "description": "Census Housing Vacancy Survey rental vacancy rate, South region (via FRED). Quarterly levels 2001-present, expressed as decimal.",
+    "description": "Census Housing Vacancy Survey rental vacancy rate, South region (via FRED). Quarterly levels 2001-present, expressed as decimal. NOTE: vacancy in MC is now computed via integer-unit Bernoulli process; this entry is retained for copula marginal calibration reference only.",
     "date_range": "2001-Q1 to 2026-Q2",
     "fit_date": "2026-08-01",
     "n_obs": 102,
@@ -50,7 +51,7 @@
     "p90": 0.1010,
     "mean": 0.08175,
     "sd": 0.01545,
-    "note": "South rental vacancy historically higher than the 7% Stoa benchmark. P50 8.2% vs old 7%. Tertiary market deals should consider adding 1-2pts above regional baseline."
+    "note": "South rental vacancy historically higher than the 7% Stoa benchmark. P50 8.2% vs old 7%. Tertiary market deals should consider adding 1-2pts above regional baseline. MC now uses integer-unit Bernoulli vacancy (FIX 1); this entry is reference-only."
   },
   "insurance_mult": {
     "source": "judgment",
@@ -73,7 +74,43 @@
     "provenance": "JUDGMENT",
     "p10": -0.0025,
     "p50": 0.0050,
-    "p90": 0.0130,
-    "note": "judgment - calibration log has no cap data (LA non-disclosure). Triangular(-25bps, +50bps, +150bps). P90 ~130bps from triangular CDF."
+    "p90": 0.0200,
+    "note": "judgment - calibration log has no cap data (LA non-disclosure). Triangular(-25bps, +50bps, +200bps). Upper tail widened from +150bps to +200bps per observed 6.5-16.5% cap dispersion in local 2026 trades. P90 ~200bps from triangular CDF.",
+    "empirical_reference": {
+      "status": "data pending",
+      "note": "No cap rate transaction records found in portfolio/ or deal-intake/ files. LA is a non-disclosure state; CoStar data not ingested. The 6.5-16.5% cap dispersion reference is judgment based on observed range from available deal intake (baker-trails going-in 6.5%, MHP assets typically 10-16%) rather than a fitted series. Update when transactions accumulate."
+    }
+  },
+  "turnover_rate": {
+    "dist": "triangular",
+    "low": 0.30,
+    "mode": 0.45,
+    "high": 0.60,
+    "source": "judgment",
+    "description": "Annual unit turnover rate for Class B/C small multifamily (4-30 units). Used in integer-unit vacancy model (FIX 1). Correlated with rent_growth via copula (rho = -0.3): high turnover when rents fall.",
+    "date_range": null,
+    "fit_date": "2026-08-02",
+    "n_obs": null,
+    "provenance": "JUDGMENT",
+    "p10": 0.30,
+    "p50": 0.45,
+    "p90": 0.60,
+    "note": "small Class B/C annual turnover; replace when own T-12s accumulate. Days-vacant per turnover drawn from triangular(20, 45, 120)."
+  },
+  "capex_vintage": {
+    "age_bands": [
+      {"max_age": 10, "base_per_unit": 250},
+      {"max_age": 25, "base_per_unit": 450},
+      {"max_age": 40, "base_per_unit": 600},
+      {"max_age": null, "base_per_unit": 750}
+    ],
+    "roof_event": {"cost_low": 8000, "cost_mode": 11500, "cost_high": 15000},
+    "hvac_event_per_unit": {"cost_low": 4500, "cost_mode": 5750, "cost_high": 7000},
+    "cap_per_unit": 3000,
+    "source": "judgment",
+    "description": "Component-life based capex priors for MC vintage capex model (FIX 2). Base capex by age band plus stochastic roof and HVAC replacement events. Applied in MC only; deterministic run() keeps flat capex_unit reserve.",
+    "fit_date": "2026-08-02",
+    "provenance": "JUDGMENT",
+    "note": "component-life priors; replace with quote/inspection data per deal. Roof events: n_buildings = max(1, round(units/4)); annual_prob = max(0, (age-15)/40). HVAC per unit: annual_prob = max(0, (age-10)/30). Total capped at $3,000/unit."
   }
 }

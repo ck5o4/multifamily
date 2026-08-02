@@ -9,6 +9,13 @@
 - Deal survives a worst-case exit (buyer pays lot-rent value only): 14.1% IRR at $1.078M basis
 - Monte Carlo at ~$1.09M: P(≥13%) ≈ 100% under fitted history
 
+## Seller reconnaissance (assessor + public records, 2026-08-02)
+- **Owner: D'Luca Properties, LLC** — LOCAL operator (owner address 14880 Lucien St Ste 92, Denham Springs; runs "D'Luca LLC," a residential property-management business out of Galvez). Subdivision literally platted as "EDEN CHURCH MHP," Ward 002, 2 acres.
+- **What this means for negotiation:** you are dealing with a sophisticated small operator, not a naive landlord. He self-manages (explains the Airbnb units and 100% occupancy claim), he KNOWS his listing's expense picture is rosy, and he will respect — not resent — a documented NOI argument. Skip the education, go straight to the math. PM-operators also often carry paper (they understand payment streams) — strengthens the seller-finance path.
+- **Price history: $1,925,000 → $1,699,000** (Redfin/MLS) — already cut $226K over 15 months. Same fatigue pattern as Baker. The next cut is a conversation, not a fantasy.
+- Assessor carries the property at ~$246K FMV / $2,466/yr taxes — the reassessment jump to ~$17K is certain and is YOUR issue to price, his broker's pro forma ignores it.
+- Open item: last sale price/date sits behind SmartCAMA's verification gate (livingston.smartcama.com, parcel 0058057) — one human click gets it, or the clerk's conveyance records. Worth grabbing before an offer: his basis sets his floor.
+
 ## Their position (read before every contact)
 - **15 months on market** (listed 5/2/2025). Every serious buyer has already told them the cap is fake. Time is your ally; never act hurried.
 - Broker did a brochure with no financials — the seller has likely never seen an honest underwrite of their own property.
