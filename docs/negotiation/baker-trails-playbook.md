@@ -30,6 +30,9 @@ Open at **$425,000** with the comp sheet attached to the LOI, settle target $460
 ## Relationship note
 Rider matters beyond this deal: Cornerstone manages small multifamily in your core submarket. Every interaction should leave him thinking "serious, fast, straight" — even a dead deal here buys deal flow later. If this dies, ask: "What else do you or your owners have that never hits LoopNet?"
 
+## MC honesty note (2026-08-02, post-realism upgrade)
+At the $499K pursue price with effective age 15, honest MC says P(≥13%) = 41% — a coin flip, dragged by component-age capex risk and exit-cap tail. The listing claims HVAC <5yrs and gutted downstairs units: IF DOCUMENTED, effective age drops to ~8-10 and the distribution recovers. Therefore capex verification (HVAC install dates, roof age, scope of renovations, receipts) is DILIGENCE PRIORITY #1, ahead of the rent roll. Without receipts, treat $499K as the ceiling, not the target; with receipts, the ladder stands.
+
 ## Hard gates before ANY offer
 1. Insurance quote (tornado: insurance is ±13-16pts of IRR on this thin deal — the single biggest input)
 2. T-12 + actual rent roll (ours is ESTIMATED — the IC memo flags it)
