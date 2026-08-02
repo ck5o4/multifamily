@@ -51,6 +51,11 @@
         "date": "2026-08-02",
         "stage": "underwriting",
         "note": "CORRECTED ladder via verified pymodel (workbook solver had frozen-exit-cap bug, now fixed): pursue 499k / strong 460k / ideal 395k. MC pending docs"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "TRIANGULATED 2026-08-02: market approach (hedonic, real trades) 500.0k vs income approach 499k - two independent methods agree within 1k; ask 750k is ~50pct above market evidence. Negotiation anchor: Family Manor Baker 42.1k/u, Huron St 37.9k/u"
       }
     ],
     "plan": null,

@@ -864,58 +864,346 @@ def tornado(inputs: dict) -> list[dict]:
     return results
 
 
-def monte_carlo(inputs: dict, n: int = 2000, seed: int = 42) -> dict:
-    """Monte Carlo with triangular distributions.
+# ---------------------------------------------------------------------------
+# Monte Carlo internals (Gaussian copula, stdlib only)
+# ---------------------------------------------------------------------------
 
-    Variables:
-        rent_growth:   tri(1%, 2%, 3%)
-        expense_growth: tri(2%, 2.5%, 4%)
-        exit_cap:      tri(going_in-25bps, going_in+50bps, going_in+150bps)
-        vacancy:       tri(5%, 7%, 10%)
-        insurance_mult: tri(0.9, 1.0, 1.5) applied to insurance input
+# Hardcoded Cholesky L for the 5x5 correlation matrix:
+#   order: [rent_growth, expense_growth, vacancy, insurance_mult, exit_cap_spread]
+#   rho_rg_eg=0.3, rho_rg_vac=-0.5, rho_ins_cap=0.3, all others=0
+# Verified: L @ L.T reproduces the correlation matrix exactly.
+_CHOL_L = [
+    [1.0000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000],
+    [0.3000000000, 0.9539392014, 0.0000000000, 0.0000000000, 0.0000000000],
+    [-0.5000000000, 0.1572427255, 0.8516306273, 0.0000000000, 0.0000000000],
+    [0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000, 0.0000000000],
+    [0.0000000000, 0.0000000000, 0.0000000000, 0.3000000000, 0.9539392014],
+]
 
-    Returns {p10, p50, p90, p_above_13, n_valid, irr_samples}.
+
+def _norm_cdf(x: float) -> float:
+    """Standard normal CDF via math.erf."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _norm_ppf(u: float) -> float:
+    """Inverse standard normal CDF (probit) — rational approximation.
+
+    Based on Peter Acklam's algorithm (max error ~1.15e-9).
+    Clamps u to (1e-12, 1-1e-12) to avoid infinities.
     """
-    random.seed(seed)
+    u = max(1e-12, min(1.0 - 1e-12, u))
 
-    def _tri(lo, mid, hi):
-        return random.triangular(lo, hi, mid)
+    # Coefficients for the rational approximation
+    a = [-3.969683028665376e+01,  2.209460984245205e+02,
+         -2.759285104469687e+02,  1.383577518672690e+02,
+         -3.066479806614716e+01,  2.506628277459239e+00]
+    b = [-5.447609879822406e+01,  1.615858368580409e+02,
+         -1.556989798598866e+02,  6.680131188771972e+01,
+         -1.328068155288572e+01]
+    c = [-7.784894002430293e-03, -3.223964580411365e-01,
+         -2.400758277161838e+00, -2.549732539343734e+00,
+          4.374664141464968e+00,  2.938163982698783e+00]
+    d = [7.784695709041462e-03,  3.224671290700398e-01,
+         2.445134137142996e+00,  3.754408661907416e+00]
 
+    p_low = 0.02425
+    p_high = 1.0 - p_low
+
+    if u < p_low:
+        q = math.sqrt(-2.0 * math.log(u))
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+               ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
+    elif u <= p_high:
+        q = u - 0.5
+        r = q * q
+        return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / \
+               (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0)
+    else:
+        q = math.sqrt(-2.0 * math.log(1.0 - u))
+        return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+                ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
+
+
+def _tri_icdf(u: float, lo: float, mode: float, hi: float) -> float:
+    """Inverse CDF of the triangular distribution (closed form)."""
+    if hi == lo:
+        return lo
+    u = max(0.0, min(1.0, u))
+    fc = (mode - lo) / (hi - lo)
+    if u <= fc:
+        return lo + math.sqrt(u * (hi - lo) * (mode - lo))
+    else:
+        return hi - math.sqrt((1.0 - u) * (hi - lo) * (hi - mode))
+
+
+def _box_muller_pair(rng) -> tuple:
+    """Generate two independent standard normals using Box-Muller."""
+    while True:
+        u1 = rng.random()
+        u2 = rng.random()
+        if u1 > 0.0:
+            break
+    mag = math.sqrt(-2.0 * math.log(u1))
+    angle = 2.0 * math.pi * u2
+    return mag * math.cos(angle), mag * math.sin(angle)
+
+
+def _correlated_uniforms(rng) -> list:
+    """Draw 5 correlated uniforms via Gaussian copula.
+
+    Uses Box-Muller for independent normals, applies Cholesky transform,
+    then maps to [0,1] via normal CDF.
+    Returns list of 5 uniform values in copula order:
+    [rent_growth, expense_growth, vacancy, insurance_mult, exit_cap_spread]
+    """
+    # Generate 5 independent standard normals (3 Box-Muller pairs, use 5)
+    z0, z1 = _box_muller_pair(rng)
+    z2, z3 = _box_muller_pair(rng)
+    z4, _ = _box_muller_pair(rng)
+    z_ind = [z0, z1, z2, z3, z4]
+
+    # Apply Cholesky: w = L @ z
+    n = 5
+    w = [sum(_CHOL_L[i][j] * z_ind[j] for j in range(n)) for i in range(n)]
+
+    # Map to uniforms via normal CDF
+    return [_norm_cdf(wi) for wi in w]
+
+
+def _load_fitted_params() -> dict:
+    """Load fitted_params.json. Returns dict or None (with stderr warning)."""
+    params_path = Path(__file__).parent / "fitted_params.json"
+    if not params_path.exists():
+        print(
+            "WARNING [monte_carlo]: tools/fitted_params.json not found. "
+            "Run tools/fit_distributions.py to generate it. "
+            "Falling back to hardcoded judgment distributions.",
+            file=sys.stderr,
+        )
+        return None
+    try:
+        import json as _json
+        with open(params_path) as f:
+            return _json.load(f)
+    except Exception as e:
+        print(
+            f"WARNING [monte_carlo]: could not parse fitted_params.json ({e}). "
+            "Falling back to hardcoded judgment distributions.",
+            file=sys.stderr,
+        )
+        return None
+
+
+def _load_rentcast_mult(deal_name, base_rent: float) -> tuple:
+    """Look for RentCast JSON for the deal and return (tri_lo, tri_mode, tri_hi, note).
+
+    Returns None if no data found (caller skips rent-level uncertainty).
+    deal_name: slug like 'eden-church-mhp'. Matched against filenames in _rentcast/.
+    base_rent: weighted average rent from unit_mix ($/mo) — used to check for FROM_LISTING.
+    """
+    root = Path(__file__).resolve().parent.parent
+    rentcast_dir = root / "deal-intake" / "_rentcast"
+    if not rentcast_dir.exists() or not deal_name:
+        return None
+
+    import json as _json
+    import glob as _glob
+
+    # Find JSON files matching deal slug (partial match on filename)
+    slug_parts = deal_name.replace("-", " ").split()
+    candidates = list(rentcast_dir.glob("*.json"))
+    match = None
+    for c in candidates:
+        name_lower = c.stem.lower().replace("-", " ").replace("_", " ")
+        if any(part.lower() in name_lower for part in slug_parts if len(part) > 3):
+            match = c
+            break
+
+    if match is None:
+        return None
+
+    try:
+        with open(match) as f:
+            data = _json.load(f)
+        rent = data.get("rent")
+        lo = data.get("rentRangeLow")
+        hi = data.get("rentRangeHigh")
+        if rent is None or lo is None or hi is None or rent == 0:
+            return None
+    except Exception:
+        return None
+
+    # Check if deal has FROM_LISTING rent roll (narrow the range by half)
+    deal_dir = root / "deal-intake" / deal_name
+    has_from_listing = any(
+        "FROM_LISTING" in f.name.upper()
+        for f in deal_dir.glob("*") if f.is_file()
+    ) if deal_dir.exists() else False
+
+    mult_lo = lo / rent
+    mult_hi = hi / rent
+
+    if has_from_listing:
+        # Halve the spread — actual rent roll narrows uncertainty
+        mid_lo = 1.0 - (1.0 - mult_lo) / 2.0
+        mid_hi = 1.0 + (mult_hi - 1.0) / 2.0
+        note = f"RentCast {match.name} + FROM_LISTING (range halved): mult [{mid_lo:.3f}, 1.000, {mid_hi:.3f}]"
+        return (mid_lo, 1.0, mid_hi, note)
+    else:
+        note = f"RentCast {match.name}: mult [{mult_lo:.3f}, 1.000, {mult_hi:.3f}]"
+        return (mult_lo, 1.0, mult_hi, note)
+
+
+def _percentile(sorted_list: list, pct: float) -> float:
+    idx = (pct / 100.0) * (len(sorted_list) - 1)
+    lo_i = int(idx)
+    hi_i = min(lo_i + 1, len(sorted_list) - 1)
+    frac = idx - lo_i
+    return sorted_list[lo_i] + frac * (sorted_list[hi_i] - sorted_list[lo_i])
+
+
+def _bootstrap_se_p10(irrs: list, k: int = 200, rng=None) -> float:
+    """Bootstrap standard error of P10 from a sorted list of IRR samples."""
+    if rng is None:
+        rng = random.Random(999)
+    n = len(irrs)
+    p10s = []
+    for _ in range(k):
+        sample = sorted(rng.choices(irrs, k=n))
+        p10s.append(_percentile(sample, 10))
+    mean_p10 = sum(p10s) / k
+    var = sum((x - mean_p10) ** 2 for x in p10s) / (k - 1)
+    return math.sqrt(var)
+
+
+def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
+                deal_name=None) -> dict:
+    """Monte Carlo with empirically-fitted distributions and Gaussian copula correlation.
+
+    Draws correlated samples via a 5-variable Gaussian copula (Cholesky, Box-Muller,
+    inverse triangular CDF). Fitted params loaded from tools/fitted_params.json;
+    falls back to hardcoded judgment values with a stderr warning if missing.
+
+    Auto-scales: runs batches of 1000 until bootstrap SE(P10) < 0.005 or n=20000.
+    If n > 0, runs exactly n draws (no auto-scale) — used by tests and --mc flag.
+
+    Optionally applies rent-level uncertainty from RentCast cache (deal_name required).
+
+    Returns dict with: p10, p50, p90, p_above_13, n_valid, n_draws, se_p10,
+                       irr_samples, rent_level_note, params_provenance.
+    """
+    rng = random.Random(seed)
+    boot_rng = random.Random(seed + 1)
+
+    # --- Load fitted params ---
+    fp = _load_fitted_params()
+
+    def _param(key, fallback_p10, fallback_p50, fallback_p90):
+        if fp and key in fp:
+            return fp[key]["p10"], fp[key]["p50"], fp[key]["p90"]
+        return fallback_p10, fallback_p50, fallback_p90
+
+    rg_p10, rg_p50, rg_p90 = _param("rent_growth", 0.01, 0.02, 0.03)
+    eg_p10, eg_p50, eg_p90 = _param("expense_growth", 0.02, 0.025, 0.04)
+    vac_p10, vac_p50, vac_p90 = _param("vacancy", 0.05, 0.07, 0.10)
+    ins_p10, ins_p50, ins_p90 = _param("insurance_mult", 0.85, 1.0, 1.60)
+    cap_p10, cap_p50, cap_p90 = _param("exit_cap_spread", -0.0025, 0.005, 0.013)
+
+    params_provenance = "FITTED" if fp else "JUDGMENT-FALLBACK"
+
+    # --- Base run ---
     base_run = run(inputs)
     base_going_in = base_run["going_in_cap"]
     base_insurance = inputs.get("insurance", 2000)
 
-    irrs = []
-    for _ in range(n):
+    # Weighted avg rent for RentCast lookup
+    total_units = sum(g["units"] for g in inputs["unit_mix"])
+    wt_rent = (sum(g["units"] * g["rent"] for g in inputs["unit_mix"]) / total_units
+               if total_units > 0 else 0.0)
+
+    # --- Rent-level multiplier from RentCast ---
+    rentcast_info = _load_rentcast_mult(deal_name, wt_rent)
+    rent_level_note = ""
+    if rentcast_info:
+        rl_lo, rl_mode, rl_hi, rent_level_note = rentcast_info
+    else:
+        rl_lo = rl_mode = rl_hi = None
+
+    # --- Triangular params (p10/p50/p90 → lo/mode/hi) ---
+    # We use p10/p50/p90 as lo/mode/hi for the triangular to keep the implementation
+    # simple and the distributions empirically anchored. This is a deliberate
+    # approximation: triangular P10 ≈ empirical P10 (exact only in special cases).
+    def _draw_one():
+        u5 = _correlated_uniforms(rng)
+        u_rg, u_eg, u_vac, u_ins, u_cap = u5
+
+        rent_growth = _tri_icdf(u_rg, rg_p10, rg_p50, rg_p90)
+        expense_growth = _tri_icdf(u_eg, eg_p10, eg_p50, eg_p90)
+        vacancy = _tri_icdf(u_vac, vac_p10, vac_p50, vac_p90)
+        ins_mult = _tri_icdf(u_ins, ins_p10, ins_p50, ins_p90)
+        cap_delta = _tri_icdf(u_cap, cap_p10, cap_p50, cap_p90)
+
         p = dict(inputs)
-        p["rent_growth"] = _tri(0.01, 0.02, 0.03)
-        p["expense_growth"] = _tri(0.02, 0.025, 0.04)
-        p["vacancy"] = _tri(0.05, 0.07, 0.10)
-        ins_mult = _tri(0.9, 1.0, 1.5)
+        p["rent_growth"] = rent_growth
+        p["expense_growth"] = expense_growth
+        p["vacancy"] = max(0.0, vacancy)
         p["insurance"] = base_insurance * ins_mult
-        # exit cap drawn relative to going-in
-        ec_delta = _tri(-0.0025, 0.005, 0.015)
-        p["exit_cap"] = base_going_in + ec_delta
+        p["exit_cap"] = max(0.001, base_going_in + cap_delta)
+
+        # Rent-level uncertainty
+        if rl_lo is not None:
+            u_rl = rng.random()  # uncorrelated — rent level is a market appraisal error
+            rl_mult = _tri_icdf(u_rl, rl_lo, rl_mode, rl_hi)
+            p["unit_mix"] = [dict(g, rent=g["rent"] * rl_mult) for g in inputs["unit_mix"]]
+
         try:
             r = run(p)
-            if r["levered_irr"] is not None:
-                irrs.append(r["levered_irr"])
+            return r["levered_irr"]
         except Exception:
-            pass
+            return None
+
+    # --- Auto-scale or fixed n ---
+    irrs = []
+    target_se = 0.005  # 0.5 percentage points
+    max_draws = 20000
+    se_p10 = float("nan")
+
+    if n > 0:
+        # Fixed-n mode (tests, --mc flag)
+        for _ in range(n):
+            v = _draw_one()
+            if v is not None:
+                irrs.append(v)
+        irrs.sort()
+        if len(irrs) >= 10:
+            se_p10 = _bootstrap_se_p10(irrs, rng=boot_rng)
+    else:
+        # Auto-scale: batches of 1000
+        batch = 1000
+        while len(irrs) < max_draws:
+            for _ in range(batch):
+                v = _draw_one()
+                if v is not None:
+                    irrs.append(v)
+            irrs.sort()
+            if len(irrs) >= 10:
+                se_p10 = _bootstrap_se_p10(irrs, rng=boot_rng)
+                if se_p10 < target_se:
+                    break
+
+    n_draws = len(irrs)
 
     if not irrs:
-        return {"p10": None, "p50": None, "p90": None, "p_above_13": None, "n_valid": 0}
+        return {
+            "p10": None, "p50": None, "p90": None,
+            "p_above_13": None, "n_valid": 0, "n_draws": 0,
+            "se_p10": float("nan"), "irr_samples": [],
+            "rent_level_note": rent_level_note,
+            "params_provenance": params_provenance,
+        }
 
-    irrs.sort()
-    n_valid = len(irrs)
-
-    def _percentile(sorted_list, pct):
-        idx = (pct / 100) * (len(sorted_list) - 1)
-        lo_i = int(idx)
-        hi_i = min(lo_i + 1, len(sorted_list) - 1)
-        frac = idx - lo_i
-        return sorted_list[lo_i] + frac * (sorted_list[hi_i] - sorted_list[lo_i])
-
+    n_valid = n_draws
     p_above = sum(1 for x in irrs if x >= 0.13) / n_valid
 
     return {
@@ -924,7 +1212,11 @@ def monte_carlo(inputs: dict, n: int = 2000, seed: int = 42) -> dict:
         "p90": _percentile(irrs, 90),
         "p_above_13": p_above,
         "n_valid": n_valid,
+        "n_draws": n_draws,
+        "se_p10": se_p10,
         "irr_samples": irrs,
+        "rent_level_note": rent_level_note,
+        "params_provenance": params_provenance,
     }
 
 
@@ -1063,11 +1355,20 @@ def main():
     ap.add_argument("--solve", type=float, metavar="IRR",
                     help="solve for price to hit this IRR (e.g. 0.16)")
     ap.add_argument("--tornado", action="store_true", help="sensitivity table")
-    ap.add_argument("--mc", action="store_true", help="Monte Carlo (n=2000)")
+    ap.add_argument("--mc", action="store_true", help="Full Monte Carlo report (auto-scale n)")
     args = ap.parse_args()
 
     inputs = _load_deal(args.deal)
     r = run(inputs)
+
+    # Quick 1000-draw MC for IRR interval (always shown in base report)
+    quick_mc = monte_carlo(inputs, n=1000, seed=42, deal_name=args.deal)
+    irr_pct = r["levered_irr"] * 100 if r["levered_irr"] is not None else float("nan")
+    if quick_mc["p10"] is not None:
+        irr_interval = (f"  [{quick_mc['p10']*100:.1f}%, P90 {quick_mc['p90']*100:.1f}%]"
+                        f"  [{quick_mc['params_provenance']}]")
+    else:
+        irr_interval = ""
 
     print(f"\n=== {args.deal.upper()} ===")
     print(f"  Price:          ${inputs['price']:>12,.0f}")
@@ -1077,10 +1378,12 @@ def main():
     print(f"  Y1 NOI:         ${r['noi'][1]:>12,.0f}")
     print(f"  Y1 DSCR:        {r['dscr'][1]:>10.2f}x")
     print(f"  Y1 DSCR(+capex):{r['dscr_post_capex'][1]:>10.2f}x")
-    print(f"  Levered IRR:    {r['levered_irr']*100 if r['levered_irr'] else float('nan'):>10.2f}%")
+    print(f"  Levered IRR:    {irr_pct:>10.1f}%{irr_interval}")
     print(f"  Equity Multiple:{r['equity_multiple']:>10.2f}x")
     print(f"  LP IRR:         {r['lp_irr']*100 if r['lp_irr'] else float('nan'):>10.2f}%")
     print(f"  GP IRR:         {r['gp_irr']*100 if r['gp_irr'] else float('nan'):>10.2f}%")
+    if quick_mc.get("rent_level_note"):
+        print(f"  Rent-level MC:  {quick_mc['rent_level_note']}")
 
     if args.solve:
         target = args.solve
@@ -1092,7 +1395,11 @@ def main():
             print(f"  Already clears at ${inputs['price']:,.0f}")
         else:
             disc = (1 - res["price"] / inputs["price"]) * 100
-            print(f"  Price: ${res['price']:,.0f}  ({disc:.0f}% below asking, IRR {res['irr']*100:.1f}%)")
+            solve_inputs = dict(inputs, price=res["price"])
+            solve_mc = monte_carlo(solve_inputs, n=1000, seed=42, deal_name=args.deal)
+            p_target = sum(1 for x in solve_mc["irr_samples"] if x >= target) / max(len(solve_mc["irr_samples"]), 1)
+            print(f"  Price: ${res['price']:,.0f}  ({disc:.0f}% below asking, IRR {res['irr']*100:.1f}%)  "
+                  f"P(IRR>={target*100:.0f}%)={p_target*100:.0f}%")
 
     if args.tornado:
         print("\n--- TORNADO ---")
@@ -1102,13 +1409,16 @@ def main():
                   f" {row['delta_irr']*100:>+7.2f}%")
 
     if args.mc:
-        print("\n--- MONTE CARLO (n=2000) ---")
-        mc = monte_carlo(inputs)
-        print(f"  P10 IRR:  {mc['p10']*100:.2f}%")
-        print(f"  P50 IRR:  {mc['p50']*100:.2f}%")
-        print(f"  P90 IRR:  {mc['p90']*100:.2f}%")
-        print(f"  P(IRR>=13%): {mc['p_above_13']*100:.1f}%")
-        print(f"  Valid runs: {mc['n_valid']}/2000")
+        print("\n--- MONTE CARLO (auto-scale, SE<0.5pts) ---")
+        mc = monte_carlo(inputs, n=0, seed=42, deal_name=args.deal)
+        print(f"  P10 IRR:        {mc['p10']*100:.2f}%")
+        print(f"  P50 IRR:        {mc['p50']*100:.2f}%")
+        print(f"  P90 IRR:        {mc['p90']*100:.2f}%")
+        print(f"  P(IRR>=13%):    {mc['p_above_13']*100:.1f}%")
+        print(f"  Draws:          {mc['n_draws']:,}  SE(P10)={mc['se_p10']*100:.3f}pts")
+        print(f"  Provenance:     {mc['params_provenance']}")
+        if mc.get("rent_level_note"):
+            print(f"  Rent-level:     {mc['rent_level_note']}")
 
 
 if __name__ == "__main__":

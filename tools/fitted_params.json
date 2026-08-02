@@ -1,0 +1,79 @@
+{
+  "_meta": {
+    "description": "Empirically-fitted MC input distributions for pymodel.py monte_carlo(). Loaded at runtime; missing file falls back to hardcoded judgment values with stderr warning.",
+    "fit_date": "2026-08-01",
+    "correlation_matrix_note": "5x5 Gaussian copula (judgment): rg/eg +0.3, rg/vac -0.5, ins/cap +0.3, all others 0. Adjust here to re-run sensitivity.",
+    "correlation_matrix": {
+      "order": ["rent_growth", "expense_growth", "vacancy", "insurance_mult", "exit_cap_spread"],
+      "rho_rg_eg": 0.3,
+      "rho_rg_vac": -0.5,
+      "rho_ins_cap": 0.3
+    }
+  },
+  "rent_growth": {
+    "source": "CUUR0300SEHA",
+    "description": "BLS CPI Rent of primary residence, South region (via FRED). Annual YoY growth from monthly index, last 25 years.",
+    "date_range": "2001-01 to 2026-06",
+    "fit_date": "2026-08-01",
+    "n_obs": 26,
+    "provenance": "FITTED",
+    "p10": 0.01383,
+    "p50": 0.03215,
+    "p90": 0.04680,
+    "mean": 0.03453,
+    "sd": 0.02149,
+    "note": "South CPI rent includes 2021-2023 surge (8-9%). P50 3.2% exceeds old 2% assumption; P90 4.7% vs old 3%. Both shifted up materially."
+  },
+  "expense_growth": {
+    "source": "CUUR0300SA0",
+    "description": "BLS CPI All Items, South region (via FRED). Annual YoY growth from monthly index, last 25 years. LA insurance shocks ride on top as separate insurance_mult factor.",
+    "date_range": "2001-01 to 2026-06",
+    "fit_date": "2026-08-01",
+    "n_obs": 26,
+    "provenance": "FITTED",
+    "p10": 0.00866,
+    "p50": 0.02147,
+    "p90": 0.04077,
+    "mean": 0.02542,
+    "sd": 0.01727,
+    "note": "P50 2.1% close to old 2.5% assumption. P10 near zero (post-GFC deflation). P90 4.1% slightly above old 4%. LA insurance shock is modeled separately via insurance_mult."
+  },
+  "vacancy": {
+    "source": "RRVRUSQ156N",
+    "description": "Census Housing Vacancy Survey rental vacancy rate, South region (via FRED). Quarterly levels 2001-present, expressed as decimal.",
+    "date_range": "2001-Q1 to 2026-Q2",
+    "fit_date": "2026-08-01",
+    "n_obs": 102,
+    "provenance": "FITTED",
+    "p10": 0.0640,
+    "p50": 0.0820,
+    "p90": 0.1010,
+    "mean": 0.08175,
+    "sd": 0.01545,
+    "note": "South rental vacancy historically higher than the 7% Stoa benchmark. P50 8.2% vs old 7%. Tertiary market deals should consider adding 1-2pts above regional baseline."
+  },
+  "insurance_mult": {
+    "source": "judgment",
+    "description": "Multiplier applied to base insurance input. No clean public series for LA homeowner/multifamily insurance. Widened significantly from national norm to reflect LA crisis regime.",
+    "date_range": null,
+    "fit_date": "2026-08-01",
+    "n_obs": null,
+    "provenance": "JUDGMENT",
+    "p10": 0.85,
+    "p50": 1.00,
+    "p90": 1.60,
+    "note": "judgment - LA crisis regime; replace with LDI filing data later. Triangular(0.85, 1.0, 1.8). P90 uses ~1.6 from triangular CDF."
+  },
+  "exit_cap_spread": {
+    "source": "judgment",
+    "description": "Spread added to going-in cap rate at exit. No cap rate transaction series available for LA tertiary markets (non-disclosure state).",
+    "date_range": null,
+    "fit_date": "2026-08-01",
+    "n_obs": null,
+    "provenance": "JUDGMENT",
+    "p10": -0.0025,
+    "p50": 0.0050,
+    "p90": 0.0130,
+    "note": "judgment - calibration log has no cap data (LA non-disclosure). Triangular(-25bps, +50bps, +150bps). P90 ~130bps from triangular CDF."
+  }
+}

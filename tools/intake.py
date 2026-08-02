@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import defaults
+import flood as _flood
 import latax
 import parsers
 import recalc as rc
@@ -123,6 +124,7 @@ def main():
     ap.add_argument("--reno-per-year", type=int, help="units renovated per year")
     ap.add_argument("--reno-downtime", type=float, help="months a unit sits empty during its turn")
     ap.add_argument("--reno-start-year", type=int, help="year renovation begins")
+    ap.add_argument("--address", help="street address for FEMA flood zone check, e.g. '5087 Baker Blvd, Baker, LA 70714'")
     ap.add_argument("--solve-price", action="store_true",
                     help="also solve what you would have to pay to hit 13%%, 16%% and 22%% IRR")
     ap.add_argument("--compare", action="store_true",
@@ -289,6 +291,24 @@ def main():
 
     w.save()
     print(f"\n  WROTE {len(w.writes)} input cells -> {dest}")
+
+    if args.address:
+        print("\n  FLOOD ZONE CHECK")
+        try:
+            fres = _flood.lookup(args.address)
+            print(f"    Address : {fres['address']}")
+            print(f"    Zone    : {fres['zone']}")
+            print(f"    SFHA    : {'YES - flood insurance required' if fres['sfha'] else 'no'}")
+            print(f"    Note    : {fres['note']}")
+            if fres["sfha"]:
+                print()
+                print("    *** WARNING: SFHA PROPERTY ***")
+                print("    Lender will require flood insurance. The template insurance")
+                print("    default does NOT include flood coverage. This screen is")
+                print("    UNRELIABLE until you have a bindable flood quote in hand.")
+                print("    Do not advance this deal without a flood insurance quote.")
+        except Exception as e:
+            print(f"    flood check unavailable: {e}")
 
     if not args.recalc:
         print("  Not recalculated. Formula cells hold no cached values until you recalc.")
