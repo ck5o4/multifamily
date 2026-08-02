@@ -1,0 +1,122 @@
+{
+  "cannon-rd": {
+    "stage": "dead",
+    "created": "2026-08-01",
+    "history": [
+      {
+        "date": "2026-08-01",
+        "stage": "underwriting",
+        "note": "41063 Cannon Rd Gonzales, 48u, ask 6.576M, Elifin"
+      },
+      {
+        "date": "2026-08-01",
+        "stage": "dead",
+        "note": "ask 6.576M vs 4.73% honest cap; needs ~40% discount; 12x his equity anyway"
+      }
+    ],
+    "plan": null,
+    "actuals": [],
+    "payback": []
+  },
+  "baker-trails": {
+    "stage": "underwriting",
+    "created": "2026-08-02",
+    "history": [
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "created"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "offered",
+        "note": "screened 2026-08-02: ask 750k = 2.4% IRR FAIL; solver: 476k clears 16%, 426k clears 22%; equity at ask 299k; flood X; comps confirm rents. Offer candidate at ~476k (37% below ask, already cut from 855k)"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "no offer made yet - stage corrected; screen says offer ~476k if pursued"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "13% pursue solver rerun 2026-08-02: pursue 521k (31% below ask) / strong 476k / ideal 426k; docs requested from Rider"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "1.30 DSCR rerun: solve prices unchanged (521k/476k/426k), same LTV-binding logic"
+      }
+    ],
+    "plan": null,
+    "actuals": [],
+    "payback": []
+  },
+  "covington-2nd": {
+    "stage": "dead",
+    "created": "2026-08-02",
+    "history": [
+      {
+        "date": "2026-08-02",
+        "stage": "dead",
+        "note": "created"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "dead",
+        "note": "screened 2026-08-02: 1.25M / 6u Covington; honest 6.45% cap but IRR 4.0% and equity 505k > capital; would need ~850-900k price; dead unless massive cut"
+      }
+    ],
+    "plan": null,
+    "actuals": [],
+    "payback": []
+  },
+  "weber-city-mhp": {
+    "stage": "dead",
+    "created": "2026-08-02",
+    "history": [
+      {
+        "date": "2026-08-02",
+        "stage": "dead",
+        "note": "created"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "dead",
+        "note": "screened 2026-08-02: ask 525k = 4.46% honest cap (broker 9.33% excludes AE flood insurance ~12.5k/yr, tax reassessment, real R&M on 1980 homes); negative IRR; dead"
+      }
+    ],
+    "plan": null,
+    "actuals": [],
+    "payback": []
+  },
+  "eden-church-mhp": {
+    "stage": "underwriting",
+    "created": "2026-08-02",
+    "history": [
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "created"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "screened 2026-08-02: honest NOI 123k (broker 195k incl Airbnb + understated opex), 7.26% real cap at 1.699M ask; solver: pursue 1.354M / strong 1.259M / ideal 1.078M; equity ~296k at 1.078M fits capital; 15 months stale; flood X clean; all 18 homes PARK-OWNED (financing + capex risk); financials request drafted to Vercher KW"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "1.30 DSCR rerun: solve prices UNCHANGED (1.354M/1.259M/1.078M) - LTV binds at those prices, so the tighter standard costs nothing at pursue pricing; at ask, equity rises to 599k and DSCR cushion now 1.30-1.35"
+      },
+      {
+        "date": "2026-08-02",
+        "stage": "underwriting",
+        "note": "exit-valuation stress 2026-08-02: at 1.078M basis, even a lot-rent-only exit buyer (equiv 15% exit cap on full NOI) leaves 14.1% IRR / 1.62x - deal survives worst realistic exit; upside case 22.6%. Cash yield carries it, not exit"
+      }
+    ],
+    "plan": null,
+    "actuals": [],
+    "payback": []
+  }
+}

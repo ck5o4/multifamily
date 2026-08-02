@@ -1,0 +1,80 @@
+"""Solve for the purchase price that hits a target return.
+
+This is the "Target Price" / "Ideal Price" idea from the tracking grid: given
+everything else about a deal, what would you have to pay for it to clear 16%,
+and what would you have to pay to clear 22%.
+
+Price is bisected. On every iteration: taxes are recomputed from price (a
+purchase resets the assessment) AND the exit cap is re-derived as that price's
+going-in cap + 50bps. Re-deriving matters: a lower price means a higher going-in
+cap, so the exit cap rises with it - the solved price never gets credit for
+selling at a richer valuation than it bought at.
+"""
+
+import shutil
+
+import latax
+import recalc as rc
+from safe_writer import ModelWriter
+
+
+def _irr_at(model_path, spec, price, fixed, location, commercial_share, work_path):
+    shutil.copy2(model_path, work_path)
+    w = ModelWriter(work_path, spec)
+    w.set(spec["scalars"]["purchase_price"], round(price))
+    for k, v in fixed.items():
+        if k == "exit_cap":
+            continue  # re-derived below, never inherited from the asking price
+        w.set(spec["scalars"][k], v)
+    if location:
+        tax, _ = latax.estimate_tax(price, location, commercial_share)
+        if tax is not None:
+            w.set(spec["scalars"]["taxes_annual"], round(tax))
+    w.save()
+    rc.recalc(work_path)
+    # Second pass: exit cap = THIS price's going-in cap + 50bps.
+    gi = rc.read_values(work_path, {"c": spec["outputs"]["going_in_cap"]})["c"]
+    if isinstance(gi, (int, float)) and gi > 0:
+        w2 = ModelWriter(work_path, spec)
+        w2.set(spec["scalars"]["exit_cap"], round(gi + 0.005, 5))
+        w2.save()
+        rc.recalc(work_path)
+    vals = rc.read_values(work_path, {
+        "irr": spec["outputs"]["levered_irr"],
+        "dscr": spec["outputs"]["dscr_yr1"],
+        "equity": spec["outputs"]["total_equity"],
+    })
+    irr = vals["irr"]
+    return (irr if isinstance(irr, (int, float)) else -1.0), vals
+
+
+def solve_price(model_path, spec, target_irr, asking, fixed, location,
+                commercial_share, work_path, tol=0.0015, max_iter=14):
+    """-> dict or None if the target is unreachable at any sane price.
+
+    Lower price means higher IRR, so the search runs downward from asking.
+    """
+    hi = asking
+    irr_hi, _ = _irr_at(model_path, spec, hi, fixed, location, commercial_share, work_path)
+    if irr_hi >= target_irr:
+        return {"price": hi, "irr": irr_hi, "note": "already clears at asking"}
+
+    lo = max(50_000, asking * 0.35)
+    irr_lo, _ = _irr_at(model_path, spec, lo, fixed, location, commercial_share, work_path)
+    if irr_lo < target_irr:
+        return None  # cannot get there even at a 65% discount
+
+    best = None
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2
+        irr_mid, vals = _irr_at(model_path, spec, mid, fixed, location, commercial_share, work_path)
+        if irr_mid >= target_irr:
+            best = {"price": mid, "irr": irr_mid, "dscr": vals["dscr"], "equity": vals["equity"]}
+            lo = mid
+        else:
+            hi = mid
+        if abs(irr_mid - target_irr) < tol:
+            break
+    if best:
+        best["price"] = round(best["price"] / 1000) * 1000
+    return best

@@ -1,0 +1,10 @@
+Bayou Ridge Apartments - Rent Roll
+Unit,Floorplan,Unit Type,SqFt,Market Rent,Status
+101,A1,1BR/1BA,725,950,Occupied
+102,A1,1BR/1BA,725,975,Occupied
+103,A1,1BR/1BA,740,940,Vacant
+201,B1,2BR/2BA,1015,1250,Occupied
+202,B1,2BR/2BA,1015,1275,Occupied
+203,B2,2BR/2BA,1080,1310,Occupied
+301,C1,3BR/2BA,1290,1525,Occupied
+302,C1,3BR/2BA,1290,1550,Occupied
