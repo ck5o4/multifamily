@@ -3,9 +3,9 @@
 *Prepared 2026-08-02. Read before any call with Vercher. Numbers from verified pymodel + 71-sale calibration DB.*
 
 ## Your numbers (memorize the first two)
-- **Walk-away: $1,394,000** (13% IRR floor, honest expenses, financeable income only)
-- **Target zone: $1,100,000 - $1,280,000** (16-22% IRR; ~$300K equity at the low end = your capital)
-- Their 11.5% cap is really **7.26%** on financeable NOI ($123K, not $195K): no Airbnb income, reassessed taxes ($17,007 vs seller's $2,466), real park-owned-home expenses
+- **Walk-away: $1,450,000** (SELLER-ACTUALS basis, authoritative Excel solve 2026-08-03: 16% IRR at $1.44M; IRR is non-monotonic above ~$1.45M as loan sizing flips, so treat $1.45M as the hard line)
+- **Target zone: $1,250,000 - $1,400,000** on seller actuals (22% at $1.25M). CAPITAL BINDS above ~$1.1M conventional - price above that requires seller carry, which is the plan
+- Their 11.5% cap is really **8.44%** on their own 2025 actuals (NOI $143.5K after reassessed taxes and honest lines, not $195K): no Airbnb income, reassessed taxes ($17,007 vs seller's $2,466), real park-owned-home expenses
 - Deal survives a worst-case exit (buyer pays lot-rent value only): 14.1% IRR at $1.078M basis
 - Monte Carlo at ~$1.09M: P(≥13%) ≈ 100% under fitted history
 
@@ -24,7 +24,7 @@
 ## Scenario scripts
 
 **A. Vercher sends full docs (T-12, rent roll, titles).**
-Underwrite within 48h. If actuals ≈ estimates: call (don't email) — "I've done the full work. I'm a real buyer at a number that will disappoint you at first, so let me walk you through how I got there." Walk him through: financeable NOI, tax reassessment, insurance quote, the 16-home vs 18-home question. Offer **$1,050,000** verbally, LOI to follow. Justify from THEIR data, never from "my model."
+Underwrite within 48h. If actuals ≈ estimates: call (don't email) — "I've done the full work. I'm a real buyer at a number that will disappoint you at first, so let me walk you through how I got there." Walk him through: financeable NOI, tax reassessment, insurance quote, the 16-home vs 18-home question. Offer **$1,150,000** verbally (their actuals earned a higher open than the estimate-era $1.05M), LOI to follow; target settle $1.25-1.35M with carry. Justify from THEIR data, never from "my model."
 
 **B. Vercher sends partial docs or a pro forma.**
 "I appreciate it — to go further I need actuals, not projections. Every number in my offer comes from documents, so better documents mean a better number." Do not underwrite pro formas. Do not name a price yet.

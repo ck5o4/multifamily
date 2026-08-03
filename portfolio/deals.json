@@ -56,6 +56,11 @@
         "date": "2026-08-02",
         "stage": "underwriting",
         "note": "TRIANGULATED 2026-08-02: market approach (hedonic, real trades) 500.0k vs income approach 499k - two independent methods agree within 1k; ask 750k is ~50pct above market evidence. Negotiation anchor: Family Manor Baker 42.1k/u, Huron St 37.9k/u"
+      },
+      {
+        "date": "2026-08-03",
+        "stage": "underwriting",
+        "note": "RED-TEAM CORRECTION 2026-08-03: authoritative Excel ladder RESTORED to 521k/476k/426k - yesterday's 499/460/395 'correction' was my pymodel scripting bias (frozen taxes from missing location param), NOT an Excel solver bug; solve.py always re-derived exit caps correctly. Market-approach 500k vs income 521k still within 4pct"
       }
     ],
     "plan": null,
@@ -133,6 +138,11 @@
         "date": "2026-08-03",
         "stage": "underwriting",
         "note": "SELLER ACTUALS RECEIVED 2026-08-03 (P&L 2025 + full rent roll w/ titles/years/leases): 18 homes confirmed (15 at 1300, 2017-19 builds; 3 old at 450-685), GPR 254.9k, collections 220.1k (13.7pct actual loss vs 100pct-occupancy marketing), actual NOI ~150k at conservative vacancy = 8.81pct cap AT ASK. NEW LADDER (actuals, conservative): 1.618M/1.483M/1.269M. MC at 1.483M: 98pct >=13. CAPITAL CONSTRAINT now binds (equity >300k above ~1.1M price) -> seller-carry is the path. Verify: maintenance methodology (414/u lean, owner self-performs?), loss runs, DEQ permit on oxidation pond, titles F/L/N. Reply drafted. Vercher also sent pocket deal: Hwy 42 MHP w/ full financials"
+      },
+      {
+        "date": "2026-08-03",
+        "stage": "underwriting",
+        "note": "AUTHORITATIVE actuals ladder (Excel path, per-price taxes): NOI 143.5k, 8.44pct cap at ask, IRR 9.9pct at ask; 16pct at 1.44M, 22pct at 1.25M, walk-away ~1.45M (IRR non-monotonic 1.45-1.65M as loan sizing flips LTV/DSCR-bound - solver reports both branches needed). Capital still binds -> seller carry path unchanged"
       }
     ],
     "plan": null,

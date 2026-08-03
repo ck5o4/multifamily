@@ -3,8 +3,8 @@
 *Prepared 2026-08-02. Numbers from verified pymodel, hedonic model, and calibration DB.*
 
 ## Your numbers
-- **Walk-away: $499,000** (13% floor) — and this one is special: the market approach independently says **$500K** (real trades: Family Manor Baker $42.1K/unit, Huron St $37.9K/unit 2026). Two methods, same number. You are not lowballing; you are quoting the market.
-- Target zone: **$395,000 - $460,000** (16-22%)
+- **Walk-away: $521,000** (13% floor, authoritative Excel solve 2026-08-03) — and the market approach independently says **$500K** (real trades: Family Manor Baker $42.1K/unit, Huron St $37.9K/unit 2026). Two methods, same number. You are not lowballing; you are quoting the market.
+- Target zone: **$426,000 - $476,000** (16-22%, authoritative)
 - At their $750K ask: 2.7% IRR, P(≥13%) = 0.0%. The ask is ~50% above transaction evidence.
 - Already cut once: $855K → $750K. Sellers who cut, cut again.
 
@@ -25,13 +25,13 @@ Underwrite in 48h. The laundromat income is the swing item — if it's real ($50
 "Then we're not close, and that's fine — but do me a favor and keep my number. This property has been repriced once already; if it happens again, I can close in 45 days with documents already done." Leave the door open; stale listings come back. Check in at 30-day intervals, never sooner.
 
 **D. Rider hints seller fatigue / 'make an offer.'**
-Open at **$425,000** with the comp sheet attached to the LOI, settle target $460-480K. Below $499K everything works; $500-530K only if the T-12 reveals upside (real laundromat income, under-market rents with leases expiring soon).
+Open at **$430,000** with the comp sheet attached to the LOI, settle target $470-500K. Below $521K everything works; $520-550K only if the T-12 reveals upside (real laundromat income, under-market rents with leases expiring soon).
 
 ## Relationship note
 Rider matters beyond this deal: Cornerstone manages small multifamily in your core submarket. Every interaction should leave him thinking "serious, fast, straight" — even a dead deal here buys deal flow later. If this dies, ask: "What else do you or your owners have that never hits LoopNet?"
 
 ## MC honesty note (2026-08-02, post-realism upgrade)
-At the $499K pursue price with effective age 15, honest MC says P(≥13%) = 41% — a coin flip, dragged by component-age capex risk and exit-cap tail. The listing claims HVAC <5yrs and gutted downstairs units: IF DOCUMENTED, effective age drops to ~8-10 and the distribution recovers. Therefore capex verification (HVAC install dates, roof age, scope of renovations, receipts) is DILIGENCE PRIORITY #1, ahead of the rent roll. Without receipts, treat $499K as the ceiling, not the target; with receipts, the ladder stands.
+At the ~$500-521K pursue price with effective age 15, honest MC says P(≥13%) = 41% — a coin flip, dragged by component-age capex risk and exit-cap tail. The listing claims HVAC <5yrs and gutted downstairs units: IF DOCUMENTED, effective age drops to ~8-10 and the distribution recovers. Therefore capex verification (HVAC install dates, roof age, scope of renovations, receipts) is DILIGENCE PRIORITY #1, ahead of the rent roll. Without receipts, treat $521K as the ceiling, not the target; with receipts, the ladder stands.
 
 ## Hard gates before ANY offer
 1. Insurance quote (tornado: insurance is ±13-16pts of IRR on this thin deal — the single biggest input)

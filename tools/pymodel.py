@@ -771,6 +771,12 @@ def solve_price(inputs: dict, target_irr: float, tol: float = 0.0001,
     location = base.pop("location", None)
     commercial_share = base.pop("commercial_share", 0.0)
     base.pop("exit_cap", None)   # always re-derive
+    if not location:
+        print("WARNING [solve_price]: no 'location' in inputs - property taxes "
+              "stay FROZEN at the loaded basis across all trial prices, biasing "
+              "the solve. Pass location for per-price reassessment. "
+              "(This exact omission skewed live-deal ladders on 2026-08-02/03.)",
+              file=sys.stderr)
 
     def _irr_at(price):
         p = dict(base)
@@ -938,6 +944,69 @@ def _tri_icdf(u: float, lo: float, mode: float, hi: float) -> float:
         return lo + math.sqrt(u * (hi - lo) * (mode - lo))
     else:
         return hi - math.sqrt((1.0 - u) * (hi - lo) * (hi - mode))
+
+
+def _pw_icdf(u: float, p10: float, p50: float, p90: float) -> float:
+    """Piecewise-uniform inverse CDF matching P10/P50/P90 exactly.
+
+    Density is uniform on four segments: a left tail carrying 10% of mass
+    (width continues the [p10,p50] segment's density), [p10,p50] with 40%,
+    [p50,p90] with 40%, and a right tail with 10% (width continues the
+    [p50,p90] density). Handles any skew a P10/P50/P90 triple can express;
+    triangulars cannot (they max out near 3:1). Fable red-team 2026-08-03.
+    """
+    u = max(0.0, min(1.0, u))
+    wl = 0.25 * (p50 - p10)   # left tail width at continued density
+    wr = 0.25 * (p90 - p50)   # right tail width at continued density
+    if u < 0.10:
+        return (p10 - wl) + (u / 0.10) * wl
+    if u < 0.50:
+        return p10 + ((u - 0.10) / 0.40) * (p50 - p10)
+    if u < 0.90:
+        return p50 + ((u - 0.50) / 0.40) * (p90 - p50)
+    return p90 + ((u - 0.90) / 0.10) * wr
+
+
+def _tri_cdf(x: float, lo: float, mode: float, hi: float) -> float:
+    if x <= lo:
+        return 0.0
+    if x >= hi:
+        return 1.0
+    if x <= mode:
+        return (x - lo) ** 2 / ((hi - lo) * (mode - lo)) if mode > lo else 0.0
+    return 1.0 - (hi - x) ** 2 / ((hi - lo) * (hi - mode)) if hi > mode else 1.0
+
+
+def _tri_from_percentiles(p10: float, p50: float, p90: float) -> tuple:
+    """Solve triangular (lo, mode, hi) whose 10th/50th/90th pctiles match.
+
+    Iterative widen-and-rebalance; a few hundred cheap iterations, computed
+    once per parameter per MC call. Non-monotone inputs pass through as-is.
+    """
+    if not (p10 < p50 < p90):
+        return p10, p50, p90
+    span = p90 - p10
+    lo, hi = p10 - 0.6 * span, p90 + 0.6 * span
+    mode = p50
+    for _ in range(200):
+        m_lo, m_hi = lo, hi
+        for _ in range(40):
+            mode = 0.5 * (m_lo + m_hi)
+            if _tri_cdf(p50, lo, mode, hi) > 0.5:
+                m_lo = mode
+            else:
+                m_hi = mode
+        c10 = _tri_cdf(p10, lo, mode, hi)
+        c90 = _tri_cdf(p90, lo, mode, hi)
+        # c10 > 0.10 => too much mass below p10 (fat left tail) => raise lo.
+        # c90 > 0.90 => too much mass below p90 (thin right tail) => raise hi.
+        lo += (c10 - 0.10) * 0.8 * span
+        hi += (c90 - 0.90) * 0.8 * span
+        lo = min(lo, p10 - 0.01 * span)
+        hi = max(hi, p90 + 0.01 * span)
+        if abs(c10 - 0.10) < 0.001 and abs(c90 - 0.90) < 0.001:
+            break
+    return lo, mode, hi
 
 
 def _box_muller_pair(rng) -> tuple:
@@ -1116,8 +1185,14 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
 
     def _param(key, fallback_p10, fallback_p50, fallback_p90):
         if fp and key in fp:
-            return fp[key]["p10"], fp[key]["p50"], fp[key]["p90"]
-        return fallback_p10, fallback_p50, fallback_p90
+            p10, p50, p90 = fp[key]["p10"], fp[key]["p50"], fp[key]["p90"]
+        else:
+            p10, p50, p90 = fallback_p10, fallback_p50, fallback_p90
+        # Draws use _pw_icdf (piecewise-uniform matching P10/P50/P90 exactly,
+        # with real tails). Passing percentiles straight through - the old
+        # triangular-with-P10/P90-endpoints truncated all tail probability.
+        # (Fable red-team, 2026-08-03)
+        return p10, p50, p90
 
     rg_p10, rg_p50, rg_p90 = _param("rent_growth", 0.01, 0.02, 0.03)
     eg_p10, eg_p50, eg_p90 = _param("expense_growth", 0.02, 0.025, 0.04)
@@ -1225,10 +1300,10 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         u6 = _correlated_uniforms(rng)
         u_rg, u_eg, u_vac, u_ins, u_cap, u_tr = u6
 
-        rent_growth = _tri_icdf(u_rg, rg_p10, rg_p50, rg_p90)
-        expense_growth = _tri_icdf(u_eg, eg_p10, eg_p50, eg_p90)
-        ins_mult = _tri_icdf(u_ins, ins_p10, ins_p50, ins_p90)
-        cap_delta = _tri_icdf(u_cap, cap_p10, cap_p50, cap_p90)
+        rent_growth = _pw_icdf(u_rg, rg_p10, rg_p50, rg_p90)
+        expense_growth = _pw_icdf(u_eg, eg_p10, eg_p50, eg_p90)
+        ins_mult = _pw_icdf(u_ins, ins_p10, ins_p50, ins_p90)
+        cap_delta = _pw_icdf(u_cap, cap_p10, cap_p50, cap_p90)
 
         # FIX 1: Integer-unit vacancy — physical process per simulated year
         # turnover_rate draws from triangular(0.30, 0.45, 0.60), correlated with
@@ -1242,8 +1317,10 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         physical_vac = days_vacant_total / max(n_units_int * 365, 1)
         frictional = rng.uniform(0.0, 0.02)  # collections / other losses
         vacancy = max(0.0, physical_vac + frictional)
-
         p = dict(inputs)
+        # frictional replaces the static bad-debt line - zero it to avoid
+        # double-counting collections losses (red-team 2026-08-03)
+        p["bad_debt"] = 0.0
         p["rent_growth"] = rent_growth
         p["expense_growth"] = expense_growth
         p["vacancy"] = vacancy
