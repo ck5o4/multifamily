@@ -56,9 +56,18 @@ def post_json(url, payload):
 
 
 def get_json(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "deal-intake/1.0"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+    # curl -4L: api.census.gov 302-redirects and its IPv6 path stalls urllib
+    # from this network (same issue as FRED in rates.py).
+    import subprocess
+    proc = subprocess.run(["curl", "-4", "-sL", "--max-time", "30", url],
+                          capture_output=True, text=True)
+    if proc.returncode != 0 or not proc.stdout:
+        raise SystemExit(f"Census API unreachable: curl exit {proc.returncode}")
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise SystemExit(f"Census API returned non-JSON (key inactive or bad "
+                         f"request): {proc.stdout[:200]}")
 
 
 def bls_labor(fips):
