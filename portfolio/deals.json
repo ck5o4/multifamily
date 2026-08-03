@@ -128,6 +128,30 @@
         "date": "2026-08-02",
         "stage": "underwriting",
         "note": "CORRECTED ladder via pymodel from ask: pursue 1.394M (18% off) / strong 1.279M / ideal 1.094M. MC at 1.078M basis: P10 15.6% P50 20.0% P90 24.1%, P(>=13%)=97.2%. Tornado: rents-5% and insurance+50% are the two kill factors -> diligence priorities"
+      },
+      {
+        "date": "2026-08-03",
+        "stage": "underwriting",
+        "note": "SELLER ACTUALS RECEIVED 2026-08-03 (P&L 2025 + full rent roll w/ titles/years/leases): 18 homes confirmed (15 at 1300, 2017-19 builds; 3 old at 450-685), GPR 254.9k, collections 220.1k (13.7pct actual loss vs 100pct-occupancy marketing), actual NOI ~150k at conservative vacancy = 8.81pct cap AT ASK. NEW LADDER (actuals, conservative): 1.618M/1.483M/1.269M. MC at 1.483M: 98pct >=13. CAPITAL CONSTRAINT now binds (equity >300k above ~1.1M price) -> seller-carry is the path. Verify: maintenance methodology (414/u lean, owner self-performs?), loss runs, DEQ permit on oxidation pond, titles F/L/N. Reply drafted. Vercher also sent pocket deal: Hwy 42 MHP w/ full financials"
+      }
+    ],
+    "plan": null,
+    "actuals": [],
+    "payback": []
+  },
+  "hwy42-mhp": {
+    "stage": "underwriting",
+    "created": "2026-08-03",
+    "history": [
+      {
+        "date": "2026-08-03",
+        "stage": "underwriting",
+        "note": "created"
+      },
+      {
+        "date": "2026-08-03",
+        "stage": "underwriting",
+        "note": "POCKET DEAL from Vercher 2026-08-03 (Old Galvez MHP, Hwy 42, Galvez = ASCENSION petrochem corridor): 30 units (27 park-owned ~1250-1300 + 3 lot-rent 425), 2025 actual collections 351.7k, claimed net 284.7k EXCLUDES mgmt + property tax; maintenance booked 32.9k (9.4pct - honest). Est NOI after 7pct mgmt + reassessed taxes ~235-245k. NO PRICE YET - in missing 4th attachment or ask Vercher. At 2.4M would be ~10pct cap. Collections show churn in raw data"
       }
     ],
     "plan": null,
