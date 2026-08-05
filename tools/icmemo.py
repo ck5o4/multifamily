@@ -60,7 +60,8 @@ def _detect_t12(deal_dir: Path):
         low = p.name.lower()
         if any(h in low for h in ("t12", "t-12", "t_12", "trailing",
                                    "operating statement", "opstatement",
-                                   "income statement", "p&l", "pnl")):
+                                   "income statement", "p&l", "pnl",
+                                   "pl_", "pl-", "actuals")):
             return p
     return None
 
@@ -136,6 +137,16 @@ def main():
     deal_rec = deals.get(deal, {})
     history = deal_rec.get("history", [])
     history_text = " ".join(h.get("note", "") for h in history)
+
+    # Audit 2026-08-05: without 'location', solve_price freezes taxes at the
+    # loaded basis and reprints the exact ladder bias diagnosed on 08-03.
+    loc = deal_rec.get("location")
+    if loc:
+        inputs["location"] = loc
+    else:
+        print(f"WARNING: no 'location' set for {deal} in portfolio/deals.json — "
+              "price-solve ladder will run with FROZEN taxes (biased). "
+              "Add a location field.", file=sys.stderr)
 
     # Detect rent roll and T-12
     rr_path, rr_status = _detect_rent_roll(deal_dir)
@@ -255,7 +266,7 @@ def main():
     # Monte Carlo
     h2("MONTE CARLO SUMMARY (n=2,000)")
     try:
-        mc = pymodel.monte_carlo(inputs)
+        mc = pymodel.monte_carlo(inputs, deal_name=deal)
         if mc["p10"] is not None:
             p(f"- **P10 IRR:** {mc['p10']*100:.1f}%")
             p(f"- **P50 IRR:** {mc['p50']*100:.1f}%")

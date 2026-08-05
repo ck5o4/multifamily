@@ -76,5 +76,15 @@ def solve_price(model_path, spec, target_irr, asking, fixed, location,
         if abs(irr_mid - target_irr) < tol:
             break
     if best:
-        best["price"] = round(best["price"] / 1000) * 1000
+        rounded = round(best["price"] / 1000) * 1000
+        if rounded != best["price"]:
+            # Re-evaluate at the rounded price so the reported IRR belongs to
+            # the reported price (audit 2026-08-05 — pymodel already does this).
+            irr_r, vals_r = _irr_at(model_path, spec, rounded, fixed,
+                                    location, commercial_share, work_path)
+            if irr_r is not None:
+                best = {"price": rounded, "irr": irr_r,
+                        "dscr": vals_r["dscr"], "equity": vals_r["equity"]}
+            else:
+                best["price"] = rounded
     return best

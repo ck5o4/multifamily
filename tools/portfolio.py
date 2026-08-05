@@ -56,7 +56,12 @@ def _load():
 
 def _save(d):
     PDIR.mkdir(exist_ok=True)
-    DEALS.write_text(json.dumps(d, indent=2))
+    # Atomic write (audit 2026-08-05: concurrent sessions demonstrably
+    # interleave read-modify-write and drop each other's updates).
+    import os
+    tmp = DEALS.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d, indent=2))
+    os.replace(tmp, DEALS)
 
 
 def _today():
@@ -171,15 +176,39 @@ def cmd_log(name, csv_path):
     path = Path(csv_path)
     added, skipped = 0, 0
     with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
-        for row in csvmod.reader(fh):
-            cells = [c.strip() for c in row if c.strip()]
+        rows = list(csvmod.reader(fh))
+    # Header-aware amount column (audit CRITICAL 2026-08-05: reversed-scan on a
+    # bank export ending in a running-balance column booked the BALANCE as the
+    # transaction amount — a $1,200 rent logged as +$45,200 of income).
+    amount_idx = None
+    if rows:
+        hdr = [c.strip().lower() for c in rows[0]]
+        if any(h in hdr for h in ("amount", "debit", "credit", "balance",
+                                  "description", "date")):
+            for cand in ("amount", "debit", "credit"):
+                if cand in hdr:
+                    amount_idx = hdr.index(cand)
+                    break
+            if "balance" in hdr and amount_idx is None:
+                print("ERROR: CSV has a 'balance' column but no amount/debit/"
+                      "credit column — refusing to guess which number is the "
+                      "transaction amount. Re-export with an amount column.")
+                return
+            rows = rows[1:]
+    if True:
+        for row in rows:
+            raw = [c.strip() for c in row]
+            cells = [c for c in raw if c]
             if len(cells) < 2:
                 continue
-            amount = None
-            for c in reversed(cells):
-                amount = to_num(c)
-                if amount is not None:
-                    break
+            if amount_idx is not None:
+                amount = to_num(raw[amount_idx]) if len(raw) > amount_idx else None
+            else:
+                amount = None
+                for c in reversed(cells):
+                    amount = to_num(c)
+                    if amount is not None:
+                        break
             if amount is None:
                 skipped += 1
                 continue

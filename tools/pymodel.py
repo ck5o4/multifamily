@@ -98,7 +98,13 @@ def _irr(cash_flows, guess=0.1, max_iter=200, tol=1e-8):
         # Clamp to avoid explosive divergence
         r_new = max(-0.999, min(r_new, 50.0))
         if abs(r_new - r) < tol:
-            return r_new
+            # A clamped fixed point is not a root: verify NPV before trusting
+            # Newton (audit F2 2026-08-05 — all-negative CF vectors returned
+            # the 50.0 clamp as a "converged" 5000% IRR).
+            scale = sum(abs(c) for c in cash_flows) or 1.0
+            if abs(_npv(r_new)) <= 1e-6 * scale:
+                return r_new
+            break
         r = r_new
 
     # Bisection fallback: bracket where sign changes
@@ -235,7 +241,10 @@ def run(inputs: dict) -> dict:
     n_payments = amort_years * 12
     dscr_pmt = (noi_y1 / min_dscr) / 12   # max monthly payment DSCR allows
     dscr_loan = _pv_annuity(monthly_rate, n_payments, dscr_pmt)
-    loan_amount = min(ltv_loan, dscr_loan)
+    loan_amount = max(0.0, min(ltv_loan, dscr_loan))
+    if noi_y1 <= 0:
+        print("WARNING [run]: Year-1 NOI <= 0 — no loan is supportable; "
+              "outputs are all-equity nonsense. Check inputs.", file=sys.stderr)
 
     monthly_pmt = _pmt(monthly_rate, n_payments, loan_amount)
     annual_debt_service = monthly_pmt * 12  # used in non-IO years
@@ -383,7 +392,18 @@ def run(inputs: dict) -> dict:
                    reno_premium_month, reno_downtime_months)
     sale_price = noi_fwd / exit_cap if exit_cap > 0 else 0.0
     cost_of_sale_amt = sale_price * cost_of_sale
-    loan_payoff = end_bal[hold_years]
+    # Audit F1 2026-08-05: a refi landing IN the sale year never rolls the debt
+    # schedule to the new loan — exit must pay off the refi loan, not the old
+    # balance (which refi_cash_out already netted out). Without this, ~$271K of
+    # phantom cash appeared on eden at refi_year=hold_years (+7 IRR pts).
+    if refi_year > 0 and refi_year == hold_years:
+        loan_payoff = refi_new_loan
+    else:
+        loan_payoff = end_bal[hold_years]
+    if refi_year > hold_years:
+        raise ValueError(f"refi_year ({refi_year}) is beyond hold_years "
+                         f"({hold_years}) — refi would never occur; remove it "
+                         "or shorten to within the hold.")
     net_sale_proceeds = sale_price - cost_of_sale_amt - loan_payoff
 
     # --- Refi proceeds in the waterfall year ---
@@ -607,6 +627,17 @@ def _waterfall(lev_cf, lp_capital, gp_capital, pref_rate, residual_lp, hold_year
     gp_residual = {}
     lp_net = {}
     gp_net = {}
+
+    neg_years = [yr for yr in years if lev_cf[yr] < 0]
+    if neg_years:
+        # Audit F4 2026-08-05: tiers floor at 0, so deficit years vanish from
+        # partner flows — LP/GP can be "paid" cash the project never generated.
+        # (Faithful to the workbook's MIN(MAX(...,0)) formulas, but economically
+        # wrong in distress.) Until deficits carry forward, flag loudly.
+        print(f"WARNING [waterfall]: negative distributable cash in year(s) "
+              f"{neg_years} — LP/GP splits ignore the deficit and overstate "
+              "partner returns. Do not quote LP numbers from this run.",
+              file=sys.stderr)
 
     for yr in years:
         dist = lev_cf[yr]   # distributable cash flow this year
@@ -848,9 +879,15 @@ def tornado(inputs: dict) -> list[dict]:
         ("vacancy +3pts", {"vacancy": inputs.get("vacancy", 0.07) + 0.03}),
     ]
 
+    # Audit F3 2026-08-05: freeze the exit cap at the BASE-case value for every
+    # stress (except the cap stress itself). With exit_cap=None the stressed run
+    # re-derived a richer multiple from the stressed going-in cap — the exit
+    # cushioned the very shock being tested, understating downside 2.8-4.0 pts.
+    frozen_cap = inputs.get("exit_cap") or round(base["going_in_cap"] + 0.005, 5)
     results = []
     for label, overrides in stresses:
         p = dict(inputs)
+        p["exit_cap"] = frozen_cap
         p.update(overrides)
         try:
             r = run(p)
@@ -1230,6 +1267,10 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         _eff_age = _current_year - year_built
     else:
         _eff_age = None  # unknown — fall back to flat capex reserve
+        print("WARNING [monte_carlo]: no year_built/effective_age — vintage "
+              "capex is INACTIVE and the P10 is optimistic (flat reserve only). "
+              "Pass year_built for honest tails (audit 2026-08-05: this fix "
+              "was silently inert in every production call).", file=sys.stderr)
 
     # Age-band base capex ($/unit/yr) for vintage capex
     def _age_band_base(age):

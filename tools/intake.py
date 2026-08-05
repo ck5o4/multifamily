@@ -31,7 +31,7 @@ INTAKE = ROOT / "deal-intake"
 
 FILE_HINTS = {
     "rent_roll": ("rentroll", "rent_roll", "rent roll", "_rr", "rr_"),
-    "t12": ("t12", "t-12", "t_12", "trailing", "operating statement", "opstatement", "income statement", "p&l", "pnl"),
+    "t12": ("t12", "t-12", "t_12", "trailing", "operating statement", "opstatement", "income statement", "p&l", "pnl", "pl_", "pl-", "actuals"),
     "comps": ("comp", "comps", "rent comp", "market survey"),
 }
 

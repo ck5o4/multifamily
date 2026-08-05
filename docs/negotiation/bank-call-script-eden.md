@@ -30,7 +30,7 @@ bridge a structure where the land loan excludes home value.
 Rouge. I'm under review on a stabilized income property in Denham Springs and
 I'm looking for the right lending partner. Quick profile question before I take
 your time: does the bank lend on mobile home communities where the park owns
-the homes? This one is 18 homes on ~5 acres, fifteen of them 2017–2019 builds,
+the homes? This one is 18 homes on 2 acres, fifteen of them 2017–2019 builds,
 city water, seller's actual 2025 financials in hand, about $143K NOI. Purchase
 price will be in the $1.2–1.4M range."
 
@@ -67,9 +67,9 @@ If YES → the eight questions:
   (docs/templates/credit-package.md — have it filled before calling.)
 - **"What's the deal?"** → One breath: "18-pad park, Denham Springs, all
   park-owned homes, 15 of 18 are 2017–2019 builds. 2025 actuals: $220K
-  collections, $143.5K NOI. At my target price that's an 8.4–11% going-in cap,
-  bank DSCR ~1.9–2.0 at 70% LTV. Flood Zone X. Permitted oxidation pond with a
-  maintenance contract, city water."
+  collections, $143.5K NOI — that's 8.4% on their ask and a 10.3–11.5% cap at
+  my target price, bank DSCR ~1.9–2.0 at 70% LTV. Flood Zone X. Oxidation pond
+  sewer, permitted per the seller — DEQ verification in my diligence. City water."
 - **"Why is the seller selling / carrying?"** → "Local operator consolidating;
   the carry conversation is about bridging his price to my basis — you'd be in
   first position, note subordinated with a standstill."

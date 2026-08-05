@@ -338,7 +338,11 @@ _SKIP = ("total", "net operating", "noi", "gross", "subtotal", "effective", "inc
          "revenue", "capital", "reserve", "debt service", "depreciation", "amortization",
          "growth rate", "per unit")
 
-_STOP_RE = re.compile(r"^\s*(total|net operating|noi)\b", re.I)
+# Stop only at STATEMENT-ENDING totals. Interior group subtotals ("Total
+# Utilities") must fall through to _SKIP, not terminate the parse — audit
+# 2026-08-05: the old ^total\b stop silently dropped every expense line after
+# the first subtotal (insurance/taxes/R&M lost on grouped statements).
+_STOP_RE = re.compile(r"^\s*(total\s+(operating|expenses?)\b|net operating|noi\b)", re.I)
 
 _TOTAL_HDR = ("total", "annual", "ttm", "t-12", "t12", "trailing", "year", "12 month", "twelve")
 _NOT_TOTAL_HDR = ("per unit", "/unit", "%", "month prior", "start month", "budget", "variance", "psf", "/sf")

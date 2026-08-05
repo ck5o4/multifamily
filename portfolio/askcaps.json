@@ -1,11 +1,12 @@
 [
   {
     "listing": "Eden Church MHP 30263 Eden Church Rd",
-    "date": "2026-08-02",
+    "date": "2026-08-05",
     "type": "mhp-park-owned",
     "claimed_cap": 11.5,
-    "honest_cap": 7.26,
-    "inflation_pts": 4.24
+    "honest_cap": 8.44,
+    "inflation_pts": 3.06,
+    "note": "updated to seller-actuals basis (was 7.26 on estimates)"
   },
   {
     "listing": "Weber City MHP 43519 Weber City Rd",
@@ -22,5 +23,14 @@
     "claimed_cap": 6.5,
     "honest_cap": 6.5,
     "inflation_pts": 0.0
+  },
+  {
+    "listing": "Old Galvez MHP 42553 LA-42 Prairieville",
+    "date": "2026-08-05",
+    "type": "mhp-park-owned",
+    "claimed_cap": 11.0,
+    "honest_cap": 7.2,
+    "inflation_pts": 3.8,
+    "note": "brochure claims 11pct highlight vs own 8.7pct financials page; honest ~7.2 after mgmt+reassessed taxes"
   }
 ]

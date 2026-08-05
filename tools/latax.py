@@ -67,8 +67,17 @@ for _parish, _towns in {
         CITY_TO_PARISH[_t] = _parish
 
 
+import re
+
+
 def _norm(s):
-    return str(s or "").strip().lower().replace(",", "")
+    key = str(s or "").strip().lower().replace(",", "")
+    # Tolerate "Denham Springs, LA", "Baker, LA 70714", "Gonzales, Louisiana"
+    # (audit 2026-08-05: state/zip suffixes silently failed parish resolution,
+    # and intake then SKIPPED tax reassessment with only a NOTES line)
+    key = re.sub(r"\s+\d{5}(-\d{4})?$", "", key)
+    key = re.sub(r"\s+(la|louisiana)$", "", key)
+    return key.strip()
 
 
 def resolve_parish(location):

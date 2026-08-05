@@ -80,6 +80,15 @@ def main():
                 continue
             try:
                 inputs = pymodel._load_deal(name)
+                # Audit 2026-08-05: inject location so solve_price re-derives
+                # taxes per trial price instead of freezing them (ladder bias).
+                try:
+                    _deals = json.loads((ROOT / "portfolio" / "deals.json").read_text())
+                    _loc = _deals.get(name, {}).get("location")
+                    if _loc:
+                        inputs["location"] = _loc
+                except Exception:
+                    pass
                 r = pymodel.run(inputs)
                 price = inputs["price"]
                 noi = r["noi"][1]

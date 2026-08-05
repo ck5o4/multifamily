@@ -25,8 +25,10 @@ bindable insurance quote + parceltax reconciliation + seller T-12/rent roll befo
       LDEQ EDMS public records search once we have the permit number.
 - [ ] **Title/VIN/year inventory, all 18 homes** (requested — Vercher produced
       exactly this for Hwy 42). Confirms the 15x 2017-19 claim documentarily.
-- [ ] **D'Luca purchase basis** — SmartCAMA parcel 0058057, one human CAPTCHA
-      click (Anthony), or clerk's conveyance records. His basis sets his floor.
+- [ ] **D'Luca purchase basis** — SmartCAMA is a DEAD END (LA non-disclosure;
+      confirmed 2026-08-05). Known: bought 5/31/2024, listed 6/20/2025 (13-month
+      flip). Exact basis via his acquisition MORTGAGE amount at Livingston Clerk
+      of Court (loan ÷ 0.75-0.80 ≈ price) or Crexi Intelligence property history.
 - [ ] **Site walk** (Thu/Fri proposed) — condition of all 18 homes outside/inside
       a sample, pond location/odor/berms, road condition, drainage, meter setup.
 
@@ -88,6 +90,11 @@ bindable insurance quote + parceltax reconciliation + seller T-12/rent roll befo
 - [ ] Property tax: parceltax reconciliation done (post-sale ~$12.5K at $1.25M);
       confirm assessor's treatment of park-owned homes (real vs personal property
       rolls) — affects the millage math.
+- [ ] **Assessment-ratio confirmation (audit 2026-08-05):** we model 10%
+      residential; some parishes class park-owned rental homes as business
+      movables at 15% (+~50% tax on the homes' value, ~+$4-5K/yr here). Current
+      Livingston carry is consistent with 10%, but get the classification IN
+      WRITING from the assessor before closing.
 - [ ] LA landlord-tenant + LA Manufactured Housing law review with attorney
       (eviction timeline for non-paying MH tenants in Livingston Parish; abandoned
       home title process — matters when a tenant walks).

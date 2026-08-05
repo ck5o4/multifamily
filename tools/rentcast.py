@@ -68,9 +68,9 @@ def main():
     ap.add_argument("--sqft", type=int)
     ap.add_argument("--type", default="Apartment",
                     help="Apartment (default), Single Family, Multi-Family, Condo, Townhouse")
+    ap.add_argument("--refresh", action="store_true",
+                    help="force a live API call even if a cached response exists")
     args = ap.parse_args()
-
-    data = fetch(args.address, args.beds, args.baths, args.sqft, args.type)
 
     CACHE.mkdir(exist_ok=True)
     slug = "".join(c if c.isalnum() else "-" for c in args.address.lower())[:60]
@@ -78,7 +78,18 @@ def main():
     # unit type, and each response costs a paid call - never overwrite one.
     spec = f"{args.beds}bd-{args.baths}ba-{args.sqft}sf-{args.type}".replace(" ", "")
     out = CACHE / f"{slug}__{spec}.json"
-    out.write_text(json.dumps(data, indent=2))
+
+    # Cache-first: the free tier is 50 calls/month — never pay twice for the
+    # same spec (audit 2026-08-05: cache was write-only).
+    if out.exists() and not args.refresh:
+        data = json.loads(out.read_text())
+        print(f"[cached — no API call; --refresh to force] {out.name}")
+    else:
+        data = fetch(args.address, args.beds, args.baths, args.sqft, args.type)
+        out.write_text(json.dumps(data, indent=2))
+        with open(CACHE / "calls.log", "a") as lf:
+            from datetime import date as _d
+            lf.write(f"{_d.today().isoformat()} {out.name}\n")
 
     print(f"Rent estimate : ${data['rent']:,.0f}/mo  "
           f"(range ${data['rentRangeLow']:,.0f} - ${data['rentRangeHigh']:,.0f})")

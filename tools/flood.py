@@ -65,7 +65,23 @@ def interpret(zones):
     def is_sfha(p):
         return p.get("SFHA_TF") == "T" or p.get("FLD_ZONE") in SFHA_ZONES
     sfha = any(is_sfha(p) for p in zones)
-    z = next((p for p in zones if is_sfha(p)), zones[0])
+
+    def _nonsfha_rank(p):
+        # worst-first among non-SFHA: D (unmapped risk) > levee-dependent X >
+        # shaded X (0.2% annual) > plain X (audit 2026-08-05: zones[0] could
+        # report "minimal hazard" while masking a D or levee polygon)
+        zn = p.get("FLD_ZONE", "?")
+        sub = (p.get("ZONE_SUBTY") or "").upper()
+        if zn == "D":
+            return 0
+        if "LEVEE" in sub:
+            return 1
+        if "0.2" in sub or "SHADED" in sub:
+            return 2
+        return 3
+
+    z = next((p for p in zones if is_sfha(p)),
+             min(zones, key=_nonsfha_rank))
     zone = z.get("FLD_ZONE", "?")
     subty = (z.get("ZONE_SUBTY") or "").strip()
     if zone == "D":
