@@ -143,6 +143,11 @@
         "date": "2026-08-03",
         "stage": "underwriting",
         "note": "AUTHORITATIVE actuals ladder (Excel path, per-price taxes): NOI 143.5k, 8.44pct cap at ask, IRR 9.9pct at ask; 16pct at 1.44M, 22pct at 1.25M, walk-away ~1.45M (IRR non-monotonic 1.45-1.65M as loan sizing flips LTV/DSCR-bound - solver reports both branches needed). Capital still binds -> seller carry path unchanged"
+      },
+      {
+        "date": "2026-08-04",
+        "stage": "underwriting",
+        "note": "VERIFICATION PASS 2026-08-04: (1) MC vacancy process found optimistic vs actual 13.7pct loss - use deterministic+stress grid, not MC probs. (2) Marketing/leasing carried at ZERO - honest gap; adding 400/u (7.2k/yr ads+PM leasing fees) drops 1.25M-w-carry base 30.8->27.5pct; with mgmt 10pct too: 24.4pct - still passes. QUOTE 27.5pct AS HONEST BASE. (3) RentCast validation RUN (was missing): 3/2 MH at subject = est 1,440/mo range 1,220-1,650, 15 comps incl 30171 Eden Church Rd (same street) at 1,299 - park rents of 1,300 are AT/BELOW market, no rent risk, slight upside. (4) Hedonic market read (662k, band 463-948k) remains UNRELIABLE for MHPs (1 MHP comp in n=56) - income approach primary. Stress grid all-pass at 1.25M w 15pct carry incl triple-stack 18.6pct. DD checklist: docs/diligence/eden-church-dd-checklist.md. Bank script: docs/negotiation/bank-call-script-eden.md."
       }
     ],
     "plan": null,
@@ -162,6 +167,11 @@
         "date": "2026-08-03",
         "stage": "underwriting",
         "note": "POCKET DEAL from Vercher 2026-08-03 (Old Galvez MHP, Hwy 42, Galvez = ASCENSION petrochem corridor): 30 units (27 park-owned ~1250-1300 + 3 lot-rent 425), 2025 actual collections 351.7k, claimed net 284.7k EXCLUDES mgmt + property tax; maintenance booked 32.9k (9.4pct - honest). Est NOI after 7pct mgmt + reassessed taxes ~235-245k. NO PRICE YET - in missing 4th attachment or ask Vercher. At 2.4M would be ~10pct cap. Collections show churn in raw data"
+      },
+      {
+        "date": "2026-08-04",
+        "stage": "underwriting",
+        "note": "FULL DOC PACKAGE downloaded 2026-08-04 (brochure + Owned Homes List + P&L YTD 2026; 2025 P&L already had). PRICE REVEALED: 3.0M ask. Brochure: 30 units (26x3/2 at 1300 + 1x2/1 at 950 + 3 lot-rent 425), 4.38ac, claimed NOI 262.5k = 8.7pct (the 11pct-cap highlight contradicts their own financials page). RED FLAGS: (1) FLOOD ZONE AE - same kill factor as weber-city; homes claimed above flood plain, insurance 39k/yr incl flood per brochure but only 25.5k/yr pace in YTD actuals; (2) claimed all homes built 2018 vs Owned Homes List showing 27 titles across 8+ manufacturers (Destiny/Kabco/Champion/GSH/Cappaert/Cavalier/SoEnergy/EAGR) - verify years; (3) claimed 100pct occupancy vs visible churn in unit-level income (units 5,7,10,16,19-21,23 gap months); (4) brochure NOI excludes mgmt + post-sale taxes (tax claimed 9k; Ascension reassessment at 3M -> ~30k+). HONEST QUICK READ: collections 352k (2025) / ~370k annualized (2026 YTD 185.2k thru Jun); honest NOI after 8pct mgmt + reassessed tax + real capex ~210-225k = ~7.2pct cap at ask. Equity at 3M ~790k = 2.6x capital -> DEAD AT ASK on capital alone; would need ~2.0-2.1M AND heavy carry. Full pymodel screen pending."
       }
     ],
     "plan": null,
