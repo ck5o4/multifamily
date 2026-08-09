@@ -9,6 +9,7 @@ A scheduled cloud session republishes the output to the standing artifact URL.
 
 import datetime
 import json
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -92,7 +93,14 @@ def compute_deal(name):
         ladder[t] = res["price"] if res else None
     mc = pymodel.monte_carlo({k: v for k, v in inputs.items() if k != "location"},
                              n=1000, seed=42, deal_name=name)
+    # House rule 2026-08-09: a deal must beat the same-period index or pass.
+    # Market 5-yr CAGR modeled Normal(10%, 8%) vs the deal's MC IRR samples.
+    rng = random.Random(7)
+    samples = mc.get("irr_samples") or []
+    beats_index = (sum(1 for irr in samples if irr > rng.gauss(0.10, 0.08))
+                   / len(samples)) if samples else None
     return {
+        "beats_index": beats_index,
         "price": inputs["price"], "units": units, "avg_rent": avg_rent,
         "rent_growth": inputs.get("rent_growth", 0.02),
         "expense_growth": inputs.get("expense_growth", 0.025),
@@ -159,6 +167,7 @@ def render_card(name, deal_rec, d):
       {stat("Insurance", f"${d['insurance_u']:,.0f}/unit/yr")}
       {stat("Property tax (post-sale)", money(d['taxes']))}
       {stat("Odds (Monte Carlo, at ask)", mc_line)}
+      {stat("Beats the stock market (at ask)", f"{d['beats_index']*100:.0f}% odds" if d.get('beats_index') is not None else "n/a", "house rule: beat the index or pass")}
       {stat("Flood", ov['flood'])}
       {stat("Documents", ov['docs'])}
     </div>
@@ -227,6 +236,7 @@ def main():
       <span>Keep in reserve <b>$30–40K</b></span>
       <span>Minimum return to pursue <b>13%</b></span>
       <span>Strong <b>16%</b> · Ideal <b>22%</b></span>
+      <span>House rule: <b>beat the index or pass</b></span>
     </div>
   </section>
   {''.join(cards)}
