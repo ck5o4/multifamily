@@ -193,5 +193,35 @@
     "actuals": [],
     "payback": [],
     "location": "prairieville"
+  },
+  "treme-gov-nicholls": {
+    "stage": "underwriting",
+    "created": "2026-08-08",
+    "history": [
+      {
+        "date": "2026-08-08",
+        "stage": "underwriting",
+        "note": "1429 Governor Nicholls St, Treme, Orleans Parish. 8u, ask 849k (106k/u), built 1970, 'most units renovated', 4 off-street parking, HUMU zoning, 8 DOM. Listed by Eric 'Celso' Hernandez, NOLA Living Realty, 504-301-9757 (Crexi phone suffix 9757 matches his brokerage listing). FLOOD Zone X levee-protected, not SFHA - no lender-required flood policy. Screen at 3000/u insurance + Orleans 131.99 mills: at ask 1400/mo rent = 5.3pct IRR FAIL, 1500 = 8.8pct, 1600 = 12.6pct. RentCast Treme 1bd/650sf = 1570 est (range 1150-2000) BUT same-block comps 0.1mi on Gov Nicholls/Treme St cluster 1290-1500; the 2050-2350 comps are 0.3-0.4mi Quarter-adjacent and are NOT this building. HONEST LADDER at 1400/mo: 13pct = 682k, 16pct = 634k (20-25pct below ask). At 1600/mo 13pct = 841k, essentially at ask. UNIT MIX UNKNOWN - 2BR units would raise blended rent and the ladder. Equity 236-297k FITS capital. VERDICT PURSUE - request rent roll, T-12, unit mix, renovation scope, and whether any income is short-term rental."
+      }
+    ],
+    "plan": null,
+    "actuals": [],
+    "payback": [],
+    "location": "new orleans"
+  },
+  "central-city-2nd": {
+    "stage": "dead",
+    "created": "2026-08-08",
+    "history": [
+      {
+        "date": "2026-08-08",
+        "stage": "dead",
+        "note": "1711 Second St, Central City, Orleans Parish. 7u, ask 1.16M (166k/u), PARTIALLY OCCUPIED (listing sells lease-up upside), 9 DOM, Elifin Realty (Benji Azar). DEAD at ask: needs ~2200/mo average rent across all 7 units to clear 13pct - Garden District pricing, not a partially-occupied Central City walk-up. At a realistic 1500/mo the 13pct price is 676k = 42pct below ask. Equity at ask 730-859k = 2.4-2.9x capital, so it fails on capital even if rents surprised. Revisit only near 700k."
+      }
+    ],
+    "plan": null,
+    "actuals": [],
+    "payback": [],
+    "location": "new orleans"
   }
 }
