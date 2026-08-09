@@ -36,8 +36,8 @@
       "id": "git-push-rule",
       "text": "Type '! git push origin main' or add a Bash(git push:*) allow rule",
       "owner": "anthony",
-      "status": "open",
-      "why": "Local commits (sweep fixes + board) cannot reach GitHub from my shell; cloud routines read the GitHub copy.",
+      "status": "done",
+      "why": "Pushed 2026-08-09. For permanent hands-off pushes, add a Bash(git push:*) allow rule in settings.",
       "added": "2026-08-09"
     },
     {
