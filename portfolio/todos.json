@@ -1,0 +1,68 @@
+{
+  "items": [
+    {
+      "id": "vercher-reply",
+      "text": "Send the Vercher reply (Eden tour + carry question + Hwy 42 decline)",
+      "owner": "anthony",
+      "status": "open",
+      "why": "Critical path. Draft ready in Gmail. 6 days stale.",
+      "added": "2026-08-08"
+    },
+    {
+      "id": "apartment-guard",
+      "text": "Send the Apartment Guard insurance follow-up (Eden habitational quote)",
+      "owner": "anthony",
+      "status": "open",
+      "why": "The quote is the go/no-go gate on Eden.",
+      "added": "2026-08-08"
+    },
+    {
+      "id": "hernandez-docs",
+      "text": "Send the Hernandez financials request (Treme rent roll, T-12, unit mix)",
+      "owner": "anthony",
+      "status": "open",
+      "why": "Everything on Treme is estimated until these arrive.",
+      "added": "2026-08-09"
+    },
+    {
+      "id": "reconnect-gmail",
+      "text": "Reconnect the Gmail connector at claude.ai/customize/connectors",
+      "owner": "anthony",
+      "status": "open",
+      "why": "The email-sweep routine was deleted and cannot be recreated without it. No automated inbox checks until this is done.",
+      "added": "2026-08-09"
+    },
+    {
+      "id": "git-push-rule",
+      "text": "Type '! git push origin main' or add a Bash(git push:*) allow rule",
+      "owner": "anthony",
+      "status": "open",
+      "why": "Local commits (sweep fixes + board) cannot reach GitHub from my shell; cloud routines read the GitHub copy.",
+      "added": "2026-08-09"
+    },
+    {
+      "id": "recreate-sweep",
+      "text": "Recreate the Deal Flow email sweep routine (after Gmail reconnects)",
+      "owner": "claude",
+      "status": "blocked",
+      "why": "Blocked on reconnect-gmail. Any session can do it once the connector exists.",
+      "added": "2026-08-09"
+    },
+    {
+      "id": "bank-calls",
+      "text": "Call 3 banks on Eden financeability (park-owned homes + seller note)",
+      "owner": "anthony",
+      "status": "open",
+      "why": "Gate 1. Script: docs/negotiation/bank-call-script-eden.md",
+      "added": "2026-08-04"
+    },
+    {
+      "id": "rider-optional",
+      "text": "Optional: send Rider/Baker financials request",
+      "owner": "anthony",
+      "status": "optional",
+      "why": "Baker is shelved; sending keeps the negotiate-down door open.",
+      "added": "2026-08-09"
+    }
+  ]
+}

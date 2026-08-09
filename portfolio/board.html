@@ -1,0 +1,305 @@
+<title>Ridgeback Peak — Deal Board</title>
+<style>
+  :root {
+    --paper: #FCFBF8;
+    --card: #FFFFFF;
+    --ink: #241E16;
+    --ink-2: #5C544A;
+    --ink-3: #8A8477;
+    --line: #E7E2D9;
+    --accent: #B4642D;
+    --accent-tint: #F6EBE0;
+    --live: #2E7D4F;
+    --live-tint: #E4F0E8;
+    --watch: #8A6408;
+    --watch-tint: #F5EDD6;
+    --dead: #8A8477;
+    --dead-tint: #EFEDE8;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --display: "Avenir Next", "Avenir", "Helvetica Neue", -apple-system, sans-serif;
+    --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #1D1913;
+      --card: #262119;
+      --ink: #EDE7DD;
+      --ink-2: #B3AA9C;
+      --ink-3: #7E766A;
+      --line: #3A342B;
+      --accent: #CE8547;
+      --accent-tint: #3A2C1D;
+      --live: #6FBA92;
+      --live-tint: #24352B;
+      --watch: #CFA13D;
+      --watch-tint: #38301A;
+      --dead: #8A8477;
+      --dead-tint: #2E2A23;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #1D1913;
+    --card: #262119;
+    --ink: #EDE7DD;
+    --ink-2: #B3AA9C;
+    --ink-3: #7E766A;
+    --line: #3A342B;
+    --accent: #CE8547;
+    --accent-tint: #3A2C1D;
+    --live: #6FBA92;
+    --live-tint: #24352B;
+    --watch: #CFA13D;
+    --watch-tint: #38301A;
+    --dead: #8A8477;
+    --dead-tint: #2E2A23;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.55;
+    margin: 0;
+    padding: 2.5rem 1.25rem 4rem;
+    font-size: 15px;
+  }
+  .wrap { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 2.2rem; }
+  header .brand {
+    font-family: var(--display);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  header h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 1.9rem;
+    margin: 0.2rem 0 0.3rem;
+    text-wrap: balance;
+  }
+  header .meta { color: var(--ink-2); font-size: 0.88rem; }
+
+  .verdict {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.3rem 1.5rem;
+  }
+  .verdict h2 { margin: 0 0 0.5rem; font-family: var(--display); font-size: 1.05rem; }
+  .verdict ul { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--ink-2); }
+  .verdict li { margin: 0.35rem 0; max-width: 62ch; }
+  .verdict strong { color: var(--ink); }
+  .rulebar {
+    display: flex; gap: 1.5rem; flex-wrap: wrap;
+    font-size: 0.85rem; color: var(--ink-2);
+    border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 0.85rem;
+  }
+  .rulebar b { font-family: var(--mono); color: var(--ink); font-weight: 600; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.4rem 1.5rem 1.5rem;
+    display: flex; flex-direction: column; gap: 1rem;
+  }
+  .card-head { display: flex; align-items: baseline; gap: 0.8rem; flex-wrap: wrap; }
+  .rank {
+    font-family: var(--display); font-weight: 700; font-size: 1.5rem;
+    color: var(--accent); min-width: 2.2rem;
+  }
+  .card-head h3 { margin: 0; font-family: var(--display); font-size: 1.25rem; flex: 1; }
+  .pill {
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 0.2rem 0.6rem; border-radius: 99px;
+  }
+  .pill.live  { background: var(--live-tint);  color: var(--live); }
+  .pill.watch { background: var(--watch-tint); color: var(--watch); }
+  .pill.dead  { background: var(--dead-tint);  color: var(--dead); }
+  .thesis { color: var(--ink-2); max-width: 68ch; margin: 0; font-size: 0.93rem; }
+
+  .pricebox {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .pricebox .row {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+    padding: 0.55rem 1rem;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+  .pricebox .row:last-of-type { border-bottom: none; }
+  .pricebox .k { color: var(--ink-2); font-size: 0.92rem; }
+  .pricebox .k small { display: block; color: var(--ink-3); font-size: 0.78rem; }
+  .pricebox .v {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-weight: 600; font-size: 1.05rem; white-space: nowrap;
+  }
+  .pricebox .v.muted { color: var(--ink-3); font-weight: 400; font-size: 0.92rem; white-space: normal; }
+  .pricebox .strategy {
+    background: var(--accent-tint);
+    padding: 0.8rem 1rem;
+    display: flex; flex-direction: column; gap: 0.2rem;
+  }
+  .pricebox .strategy .k {
+    color: var(--accent); font-weight: 700; font-size: 0.72rem;
+    text-transform: uppercase; letter-spacing: 0.1em; font-family: var(--display);
+  }
+  .pricebox .strategy .s { font-size: 0.98rem; color: var(--ink); max-width: 62ch; }
+  .pricebox .strategy .s b { font-family: var(--mono); }
+
+  .gate {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-tint);
+    padding: 0.7rem 1rem; border-radius: 0 8px 8px 0;
+    font-size: 0.92rem;
+  }
+  .gate b { font-family: var(--display); }
+
+  .next { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.92rem; }
+  .next li { padding-left: 1.4rem; position: relative; }
+  .next li::before {
+    content: ""; position: absolute; left: 0; top: 0.42em;
+    width: 0.62em; height: 0.62em; border: 1.5px solid var(--accent); border-radius: 3px;
+  }
+  .next .who { color: var(--ink-3); font-size: 0.8rem; }
+
+  h2.section {
+    font-family: var(--display); font-size: 0.85rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2);
+    margin: 0 0 0.8rem; border-bottom: 1px solid var(--line); padding-bottom: 0.5rem;
+  }
+
+  .h2h { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.5rem 0.9rem 0.5rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); font-weight: 600; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td .adv { color: var(--live); font-weight: 600; }
+
+  .row-deal { display: flex; gap: 1rem; align-items: baseline; padding: 0.7rem 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .row-deal:last-child { border-bottom: none; }
+  .row-deal .name { font-weight: 600; min-width: 11.5rem; font-family: var(--display); }
+  .row-deal .why { color: var(--ink-2); flex: 1; min-width: 16rem; font-size: 0.9rem; }
+  .row-deal .why b { color: var(--ink); }
+
+  footer { color: var(--ink-3); font-size: 0.8rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+  footer code { font-family: var(--mono); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  .todo { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+  .todo li { margin: 0.4rem 0; max-width: 70ch; }
+  .todo li b { color: var(--accent); font-family: var(--display); font-size: 0.78rem; }
+  .todo li.blocked { color: var(--ink-3); }
+  .todo li.optional { color: var(--ink-2); }
+  .todo .who { color: var(--ink-3); font-size: 0.85rem; }
+</style>
+<div class="wrap">
+  <header>
+    <div class="brand">Ridgeback Peak Properties</div>
+    <h1>Deal Board</h1>
+    <div class="meta">Auto-generated 2026-08-09 · every number recomputed from the live models · private</div>
+  </header>
+  <section class="verdict">
+    <h2>To do</h2>
+    <ul class="todo"><li class=""><b>[YOU]</b> Send the Vercher reply (Eden tour + carry question + Hwy 42 decline) <span class="who">— Critical path. Draft ready in Gmail. 6 days stale.</span></li>
+<li class=""><b>[YOU]</b> Send the Apartment Guard insurance follow-up (Eden habitational quote) <span class="who">— The quote is the go/no-go gate on Eden.</span></li>
+<li class=""><b>[YOU]</b> Send the Hernandez financials request (Treme rent roll, T-12, unit mix) <span class="who">— Everything on Treme is estimated until these arrive.</span></li>
+<li class=""><b>[YOU]</b> Reconnect the Gmail connector at claude.ai/customize/connectors <span class="who">— The email-sweep routine was deleted and cannot be recreated without it. No automated inbox checks until this is done.</span></li>
+<li class=""><b>[YOU]</b> Type '! git push origin main' or add a Bash(git push:*) allow rule <span class="who">— Local commits (sweep fixes + board) cannot reach GitHub from my shell; cloud routines read the GitHub copy.</span></li>
+<li class="blocked"><b>[CLAUDE]</b> Recreate the Deal Flow email sweep routine (after Gmail reconnects) <span class="who">— Blocked on reconnect-gmail. Any session can do it once the connector exists.</span></li>
+<li class=""><b>[YOU]</b> Call 3 banks on Eden financeability (park-owned homes + seller note) <span class="who">— Gate 1. Script: docs/negotiation/bank-call-script-eden.md</span></li>
+<li class="optional"><b>[YOU]</b> Optional: send Rider/Baker financials request <span class="who">— Baker is shelved; sending keeps the negotiate-down door open.</span></li></ul>
+    <div class="rulebar">
+      <span>Your capital <b>$300K</b></span>
+      <span>Keep in reserve <b>$30–40K</b></span>
+      <span>Minimum return to pursue <b>13%</b></span>
+      <span>Strong <b>16%</b> · Ideal <b>22%</b></span>
+    </div>
+  </section>
+  
+  <section class="card">
+    <div class="card-head">
+      <span class="rank">#1</span>
+      <h3>Eden Church MHP — 18 pads, Denham Springs</h3>
+      <span class="pill live">Live · Priority</span>
+    </div>
+    <p class="thesis">Mobile home park, all 18 homes park-owned (15 built 2017–19). Seller's real P&L in hand. Motivated seller: bought May 2024, exiting for 15 months, already cut the price $226K.</p>
+    <div class="pricebox">
+      <div class="row"><span class="k">Listed price</span><span class="v">$1,699,000</span></div>
+      <div class="row"><span class="k">Price for a 13% return <small>minimum to pursue</small></span><span class="v">$1,559,000</span></div>
+      <div class="row"><span class="k">Price for a 16% return <small>strong deal</small></span><span class="v">$1,443,000</span></div>
+      <div class="row"><span class="k">Price for a 22% return <small>ideal</small></span><span class="v">$1,252,000</span></div>
+      <div class="row"><span class="k">Price your $300K closes without seller carry</span><span class="v">~$1,100,000</span></div><div class="row"><span class="k">Price your $300K closes with seller carry</span><span class="v">~$1,250,000</span></div>
+      <div class="strategy"><span class="k">Recommended strategy</span><span class="s">Ask for <b>$1.25M</b> with the seller carrying <b>~$190–240K</b>. Your cash in ≈ <b>$260–300K</b> (bigger carry = reserve left over), honest return <b>27.5%</b>. Walk if he won't carry AND won't come under <b>$1.45M</b>.</span></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="k">Units</div><div class="v">18 </div></div>
+      <div class="stat"><div class="k">Avg rent</div><div class="v">$1,180/mo </div></div>
+      <div class="stat"><div class="k">Rent growth</div><div class="v">2.0%/yr <small>house assumption</small></div></div>
+      <div class="stat"><div class="k">Expense growth</div><div class="v">2.5%/yr </div></div>
+      <div class="stat"><div class="k">Vacancy + bad debt</div><div class="v">13.7% </div></div>
+      <div class="stat"><div class="k">Year-1 income (NOI)</div><div class="v">$143,474 </div></div>
+      <div class="stat"><div class="k">Cap rate at ask</div><div class="v">8.44% </div></div>
+      <div class="stat"><div class="k">Return at ask</div><div class="v">9.9% </div></div>
+      <div class="stat"><div class="k">Cash needed at ask</div><div class="v">$471,472 </div></div>
+      <div class="stat"><div class="k">Debt coverage</div><div class="v">1.36x <small>bank wants 1.25+</small></div></div>
+      <div class="stat"><div class="k">Insurance</div><div class="v">$1,060/unit/yr </div></div>
+      <div class="stat"><div class="k">Property tax (post-sale)</div><div class="v">$17,007 </div></div>
+      <div class="stat"><div class="k">Odds (Monte Carlo, at ask)</div><div class="v">P10 -4% · P50 12% · P(≥13%) 45% </div></div>
+      <div class="stat"><div class="k">Flood</div><div class="v">Zone X (clean) — but ask the 2016 flood question on tour </div></div>
+      <div class="stat"><div class="k">Documents</div><div class="v">Seller actuals ✓ (P&L 2025, rent roll, utility bill) </div></div>
+    </div>
+    <div class="gate"><b>Before any offer:</b> bindable insurance quote at ≤ ~$1,600/unit (the #1 kill factor) + bank confirms it lends on park-owned homes with a seller note behind it.</div>
+  </section>
+  <section class="card">
+    <div class="card-head">
+      <span class="rank">#2</span>
+      <h3>1429 Governor Nicholls — 8 units, Tremé, New Orleans</h3>
+      <span class="pill live">Live · Priority</span>
+    </div>
+    <p class="thesis">8-unit building, most units renovated, levee-protected. Rents estimated at $1,400/mo until seller documents arrive — same-block comps support $1,290–1,500. 2BR units in the mix would raise every number.</p>
+    <div class="pricebox">
+      <div class="row"><span class="k">Listed price</span><span class="v">$849,000</span></div>
+      <div class="row"><span class="k">Price for a 13% return <small>minimum to pursue</small></span><span class="v">$714,000</span></div>
+      <div class="row"><span class="k">Price for a 16% return <small>strong deal</small></span><span class="v">$664,000</span></div>
+      <div class="row"><span class="k">Price for a 22% return <small>ideal</small></span><span class="v">$580,000</span></div>
+      <div class="row"><span class="k">Seller carry needed?</span><span class="v muted">No — your $300K closes this at any price on this list</span></div>
+      <div class="strategy"><span class="k">Recommended strategy</span><span class="s">Get the documents first. Then open at <b>~$580K</b>, target <b>$664K or less</b>, don't go above <b>$714K</b> on estimated rents. Listing is young — if he won't move, wait; it gets cheaper as it sits.</span></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="k">Units</div><div class="v">8 </div></div>
+      <div class="stat"><div class="k">Avg rent</div><div class="v">$1,400/mo </div></div>
+      <div class="stat"><div class="k">Rent growth</div><div class="v">2.0%/yr <small>house assumption</small></div></div>
+      <div class="stat"><div class="k">Expense growth</div><div class="v">2.5%/yr </div></div>
+      <div class="stat"><div class="k">Vacancy + bad debt</div><div class="v">7.5% </div></div>
+      <div class="stat"><div class="k">Year-1 income (NOI)</div><div class="v">$65,174 </div></div>
+      <div class="stat"><div class="k">Cap rate at ask</div><div class="v">7.68% </div></div>
+      <div class="stat"><div class="k">Return at ask</div><div class="v">6.6% </div></div>
+      <div class="stat"><div class="k">Cash needed at ask</div><div class="v">$267,345 </div></div>
+      <div class="stat"><div class="k">Debt coverage</div><div class="v">1.30x <small>bank wants 1.25+</small></div></div>
+      <div class="stat"><div class="k">Insurance</div><div class="v">$3,000/unit/yr </div></div>
+      <div class="stat"><div class="k">Property tax (post-sale)</div><div class="v">$11,206 </div></div>
+      <div class="stat"><div class="k">Odds (Monte Carlo, at ask)</div><div class="v">P10 -8% · P50 8% · P(≥13%) 33% </div></div>
+      <div class="stat"><div class="k">Flood</div><div class="v">Zone X levee-protected — no flood policy required </div></div>
+      <div class="stat"><div class="k">Documents</div><div class="v">Estimates — documents requested </div></div>
+    </div>
+    <div class="gate"><b>Before any offer:</b> real rent roll, T-12, unit mix, renovation scope, and whether any income is short-term rental.</div>
+  </section>
+  <section>
+    <h2 class="section">Shelved — comes back automatically if…</h2>
+    <div class="row-deal"><span class="name">Baker Trails <span class="pill watch">Watching</span></span><span class="why">Ask $750K, works at <b>$476K</b> — too far apart today. <b>Comes back if:</b> price drops toward $500K (alert armed) or the broker produces roof/HVAC receipts and signals flexibility.</span></div>
+  </section>
+  <section>
+    <h2 class="section">Dead — and the price that would revive each</h2>
+    <div class="row-deal"><span class="name">Cannon Rd <span class="pill dead">Dead</span></span><span class="why">Needs 12× your capital. Not a maybe.</span></div><div class="row-deal"><span class="name">Covington 2Nd <span class="pill dead">Dead</span></span><span class="why">Ask $1.25M. <b>Only near $850–900K</b> — and it needs more cash than you have.</span></div><div class="row-deal"><span class="name">Weber City Mhp <span class="pill dead">Dead</span></span><span class="why">Flood zone kills it at any realistic price.</span></div><div class="row-deal"><span class="name">Hwy42 Mhp <span class="pill dead">Dead</span></span><span class="why">Ask $3.0M. <b>Only at ~$2.4–2.5M with ~$400K carry</b> — and it sits in a real flood zone.</span></div><div class="row-deal"><span class="name">Central City 2Nd <span class="pill dead">Dead</span></span><span class="why">Ask $1.16M. <b>Only near $700K.</b></span></div>
+  </section>
+  <footer>
+    Generated by tools/board.py at commit <code>a7897be</code> on 2026-08-09 ·
+    all numbers computed clean ·
+    republished to the standing link by the daily scan routine
+  </footer>
+</div>
