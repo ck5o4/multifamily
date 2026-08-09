@@ -20,7 +20,7 @@
     "location": "gonzales"
   },
   "baker-trails": {
-    "stage": "underwriting",
+    "stage": "watching",
     "created": "2026-08-02",
     "history": [
       {
@@ -62,6 +62,11 @@
         "date": "2026-08-03",
         "stage": "underwriting",
         "note": "RED-TEAM CORRECTION 2026-08-03: authoritative Excel ladder RESTORED to 521k/476k/426k - yesterday's 499/460/395 'correction' was my pymodel scripting bias (frozen taxes from missing location param), NOT an Excel solver bug; solve.py always re-derived exit caps correctly. Market-approach 500k vs income 521k still within 4pct"
+      },
+      {
+        "date": "2026-08-09",
+        "stage": "watching",
+        "note": "DEPRIORITIZED 2026-08-09 (Anthony: top two only, capital binds): pursue price 476k = 37pct below 750k ask - too far without seller distress; P(>=13) only 41pct without capex receipts. REVIVE TRIGGERS: (a) price cut toward ~500k (Crexi price-change alert active on Watchlist), (b) Rider produces roof/HVAC receipts AND signals flexibility. Drafted Rider financials-request email now OPTIONAL - sending it costs nothing and keeps the negotiate-down door open, Anthony's call."
       }
     ],
     "plan": null,
@@ -162,6 +167,11 @@
         "date": "2026-08-09",
         "stage": "underwriting",
         "note": "SWEEP CORRECTIONS 2026-08-09: MC probabilities in IC_MEMO_2026-08-05 were inflated by engine bug (vacancy substitution 13.7pct -> 8.6pct): at-ask P(>=13) 69.8pct -> 44-47pct honest (P50 ~12pct vs det 9.9pct). Does NOT change the pursue case: basis was never ask - 1.25-1.27M w/ seller carry, 27.5pct honest deterministic base w/ stress-grid all-pass (08-04) remains the decision standard. Rent-growth marginal (fitted 3.2pct P50 vs 2pct underwrite) is the remaining known MC optimism - deterministic+stress grid stays authoritative per house rule."
+      },
+      {
+        "date": "2026-08-09",
+        "stage": "underwriting",
+        "note": "PRIORITY 1 of 2 (2026-08-09, Anthony directive: 300k capital -> top two only): best verified economics in pipeline - seller actuals in hand, 8.44pct cap at ask, pursue basis 1.25-1.27M w/ seller carry = 27.5pct honest deterministic base, stress grid all-pass, motivated twice-flipped seller (1.925M->1.699M), engaged broker (Vercher). GATE: bindable habitational insurance <=~1600/u (Apartment Guard follow-up drafted). Critical path: send Vercher reply -> tour -> carry conversation."
       }
     ],
     "plan": null,
@@ -222,6 +232,11 @@
         "date": "2026-08-09",
         "stage": "underwriting",
         "note": "REPRODUCIBLE REBUILD 2026-08-09 (sweep finding: 08-08 screen was in-session math, never persisted): built rentroll_treme_ESTIMATED.csv (8x 1BR/650sf at 1400 blended - same recorded basis) + treme-gov-nicholls_acq.xlsx via intake (ins 3000/u, mgmt 8pct, Orleans latax). CANONICAL LADDER (per-price taxes): 13pct = 714k (16pct off ask) / 16pct = 664k / 22pct = 580k; at ask 849k: 7.68pct cap, NOI 65.2k, IRR 6.6pct, equity 267k FITS capital, DSCR 1.30 binds. Prior unpersisted ladder (682k/634k) superseded. PURSUE unchanged - offer zone 580-664k pending rent roll/T-12/unit mix from Hernandez (2BR units would raise the ladder). In test_pymodel parity? NOT yet - add after seller docs replace estimates."
+      },
+      {
+        "date": "2026-08-09",
+        "stage": "underwriting",
+        "note": "PRIORITY 2 of 2 (2026-08-09): the only deal that fits 300k capital with NO carry/partner (equity 267k at ask, 236-297k in offer zone). Canonical ladder 714k/664k/580k vs 849k ask. All-estimated basis - Hernandez docs (rent roll, T-12, unit mix, reno scope, STR status) decide it. Fresh listing (8 DOM) = discount appetite unknown; if seller anchors at ask, patience."
       }
     ],
     "plan": null,
