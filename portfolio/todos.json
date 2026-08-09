@@ -28,7 +28,7 @@
       "id": "reconnect-gmail",
       "text": "Reconnect the Gmail connector at claude.ai/customize/connectors",
       "owner": "anthony",
-      "status": "open",
+      "status": "done",
       "why": "The email-sweep routine was deleted and cannot be recreated without it. No automated inbox checks until this is done.",
       "added": "2026-08-09"
     },
@@ -44,7 +44,7 @@
       "id": "recreate-sweep",
       "text": "Recreate the Deal Flow email sweep routine (after Gmail reconnects)",
       "owner": "claude",
-      "status": "blocked",
+      "status": "done",
       "why": "Blocked on reconnect-gmail. Any session can do it once the connector exists.",
       "added": "2026-08-09"
     },
