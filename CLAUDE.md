@@ -97,7 +97,7 @@ Unit mix philosophy: 45% 1BR / 45% 2BR / 10% 3BR. Class A in tertiary markets.
 - Partners: Toby Easterly (Managing Partner), Saun Sullivan (DSLD Homes CEO), Ryan Nash.
 - Rezoning pitch themes: economic boost, walkability, tax revenue, design standards.
 
-## Data ingestion plan (build next in Claude Code)
+## Data ingestion plan (BUILT — see tools/README.md; kept for design intent)
 CoStar has NO public API for individuals. Workflow: user exports from CoStar/Crexi/
 LoopNet/broker OMs (CSV, XLSX, PDF) into ./deal-intake/<deal-name>/. Scripts should:
 1. Parse rent rolls (PDF/CSV) -> unit mix table -> write into model Inputs (openpyxl).
@@ -110,7 +110,11 @@ Never overwrite formula cells — write only to the blue input cells documented 
 workbook's Read Me.
 
 ## Pending work
-1. CoStar/rent-roll/T-12 ingestion scripts (above).
+1. DONE 2026-08-01: ingestion scripts built and verified (tools/intake.py, parsers.py,
+   recalc.py + pymodel.py python twin; parity-tested per deal in tools/test_pymodel.py).
 2. Optional: extend waterfall to Stoa's full 4-tier (8% pref / 10% / 12% / 10-20-30 promote).
 3. Optional: floating-rate forward curve for construction loan (currently fixed rate).
 4. Analyze live listings as the user brings them.
+5. Verify the two master .xlsx workbooks against the 2026-08-09 engine fixes (post-payoff
+   debt service when amort < hold; waterfall negative-distributable-year handling) — the
+   Python engine is fixed; the workbook formulas may share the same edge-case bugs.

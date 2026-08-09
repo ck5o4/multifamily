@@ -49,7 +49,13 @@ def recalc(path, timeout=180):
     with tempfile.TemporaryDirectory() as td:
         cmd = [soffice, "--headless", "--norestore", "--convert-to", "xlsx",
                "--outdir", td, str(path)]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise RecalcUnavailable(
+                f"LibreOffice timed out after {timeout}s recalculating {path.name}. "
+                "An already-open or hung LibreOffice instance is the usual cause - "
+                "close it and re-run.") from None
         produced = Path(td) / path.name
         if not produced.exists():
             raise RecalcUnavailable(

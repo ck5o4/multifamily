@@ -327,6 +327,12 @@ def run(inputs: dict) -> dict:
             interest_pmt[yr] = bb * yr_rate
             principal_pmt[yr] = 0.0
             end_bal[yr] = bb
+        elif bb <= 1e-9:
+            # Loan already retired: no phantom payments on a zero balance
+            # (sweep 2026-08-09: amort_years < hold_years charged full DS forever).
+            interest_pmt[yr] = 0.0
+            principal_pmt[yr] = 0.0
+            end_bal[yr] = 0.0
         else:
             # Amortizing: use FV to find ending balance
             if post_refi:
@@ -334,10 +340,24 @@ def run(inputs: dict) -> dict:
             else:
                 eb = _fv_annuity(rate / 12, 12, monthly_pmt, bb)
             end_bal[yr] = eb
-            # Interest = annual_pmt*12 - principal_reduction (or directly from FV formula)
-            # Excel: interest = 12*pmt - (beg_bal - end_bal)
-            interest_pmt[yr] = 12 * yr_pmt - (bb - eb)
-            principal_pmt[yr] = bb - eb
+            if eb <= 1e-9:
+                # Retires mid-year: charge only the payments actually made,
+                # not 12 (12*pmt - bb overstates interest on the short year).
+                r_m = yr_rate / 12
+                if r_m > 0 and yr_pmt > bb * r_m:
+                    n_pay = math.ceil(math.log(yr_pmt / (yr_pmt - bb * r_m))
+                                      / math.log(1 + r_m))
+                else:
+                    n_pay = math.ceil(bb / yr_pmt) if yr_pmt > 0 else 0
+                n_pay = min(max(n_pay, 0), 12)
+                interest_pmt[yr] = max(n_pay * yr_pmt - bb, 0.0)
+                principal_pmt[yr] = bb
+                end_bal[yr] = 0.0
+            else:
+                # Interest = annual_pmt*12 - principal_reduction (or directly from FV formula)
+                # Excel: interest = 12*pmt - (beg_bal - end_bal)
+                interest_pmt[yr] = 12 * yr_pmt - (bb - eb)
+                principal_pmt[yr] = bb - eb
 
         total_ds[yr] = interest_pmt[yr] + principal_pmt[yr]
 
@@ -486,6 +506,8 @@ def run(inputs: dict) -> dict:
         "gp_irr": wf["gp_irr"],
         "gp_em": wf["gp_em"],
         "gp_profit": wf["gp_profit"],
+        "waterfall_invalid": wf.get("waterfall_invalid", False),
+        "waterfall_neg_years": wf.get("waterfall_neg_years", []),
         "wf_detail": wf["detail"],
         # Reno
         "reno_budget": reno_budget,
@@ -684,7 +706,18 @@ def _waterfall(lev_cf, lp_capital, gp_capital, pref_rate, residual_lp, hold_year
     lp_em = 1 + lp_profit / lp_capital if lp_capital > 0 else 0.0
     gp_em = 1 + gp_profit / gp_capital if gp_capital > 0 else 0.0
 
+    if neg_years:
+        # The tier math floored the deficit years at 0, so partner flows contain
+        # phantom cash the project never distributed. Null the metrics rather
+        # than return numbers the warning says not to quote (sweep 2026-08-09).
+        lp_irr = None
+        gp_irr = None
+        lp_em = None
+        gp_em = None
+
     return {
+        "waterfall_invalid": bool(neg_years),
+        "waterfall_neg_years": neg_years,
         "lp_irr": lp_irr,
         "lp_em": lp_em,
         "lp_profit": lp_profit,
@@ -846,7 +879,10 @@ def solve_price(inputs: dict, target_irr: float, tol: float = 0.0001,
             lo = mid
         else:
             hi = mid
-        if abs(irr_mid - target_irr) < tol:
+        # Only stop on tolerance once a clearing price exists: a midpoint that
+        # lands within tol *below* target would otherwise end the search with
+        # best=None and report a reachable target as unreachable (sweep 2026-08-09).
+        if best is not None and abs(irr_mid - target_irr) < tol:
             break
 
     if best:
@@ -1119,29 +1155,41 @@ def _load_rentcast_mult(deal_name, base_rent: float) -> tuple:
     import json as _json
     import glob as _glob
 
-    # Find JSON files matching deal slug (partial match on filename)
-    slug_parts = deal_name.replace("-", " ").split()
-    candidates = list(rentcast_dir.glob("*.json"))
-    match = None
-    for c in candidates:
+    # Find JSON files matching the deal slug. ALL >3-char tokens must appear:
+    # any-token matching let 'church-street-8plex' consume the eden-church
+    # cache of a different property (sweep 2026-08-09). Multiple files per
+    # property (one per unit spec) are averaged, not first-glob-wins.
+    slug_parts = [p.lower() for p in deal_name.replace("-", " ").split() if len(p) > 3]
+    if not slug_parts:
+        return None
+    matches = []
+    for c in sorted(rentcast_dir.glob("*.json")):
         name_lower = c.stem.lower().replace("-", " ").replace("_", " ")
-        if any(part.lower() in name_lower for part in slug_parts if len(part) > 3):
-            match = c
-            break
+        if all(part in name_lower for part in slug_parts):
+            matches.append(c)
 
-    if match is None:
+    if not matches:
         return None
 
-    try:
-        with open(match) as f:
-            data = _json.load(f)
-        rent = data.get("rent")
-        lo = data.get("rentRangeLow")
-        hi = data.get("rentRangeHigh")
-        if rent is None or lo is None or hi is None or rent == 0:
-            return None
-    except Exception:
+    mults = []
+    for m in matches:
+        try:
+            with open(m) as f:
+                data = _json.load(f)
+            rent = data.get("rent")
+            lo = data.get("rentRangeLow")
+            hi = data.get("rentRangeHigh")
+            if rent is None or lo is None or hi is None or rent == 0:
+                continue
+            mults.append((lo / rent, hi / rent))
+        except Exception:
+            continue
+    if not mults:
         return None
+    mult_lo = sum(m[0] for m in mults) / len(mults)
+    mult_hi = sum(m[1] for m in mults) / len(mults)
+    match_desc = (matches[0].name if len(matches) == 1
+                  else f"{len(matches)} files avg ({matches[0].name}, ...)")
 
     # Check if deal has FROM_LISTING rent roll (narrow the range by half)
     deal_dir = root / "deal-intake" / deal_name
@@ -1150,17 +1198,14 @@ def _load_rentcast_mult(deal_name, base_rent: float) -> tuple:
         for f in deal_dir.glob("*") if f.is_file()
     ) if deal_dir.exists() else False
 
-    mult_lo = lo / rent
-    mult_hi = hi / rent
-
     if has_from_listing:
         # Halve the spread — actual rent roll narrows uncertainty
         mid_lo = 1.0 - (1.0 - mult_lo) / 2.0
         mid_hi = 1.0 + (mult_hi - 1.0) / 2.0
-        note = f"RentCast {match.name} + FROM_LISTING (range halved): mult [{mid_lo:.3f}, 1.000, {mid_hi:.3f}]"
+        note = f"RentCast {match_desc} + FROM_LISTING (range halved): mult [{mid_lo:.3f}, 1.000, {mid_hi:.3f}]"
         return (mid_lo, 1.0, mid_hi, note)
     else:
-        note = f"RentCast {match.name}: mult [{mult_lo:.3f}, 1.000, {mult_hi:.3f}]"
+        note = f"RentCast {match_desc}: mult [{mult_lo:.3f}, 1.000, {mult_hi:.3f}]"
         return (mult_lo, 1.0, mult_hi, note)
 
 
@@ -1245,6 +1290,15 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
     base_going_in = base_run["going_in_cap"]
     base_insurance = inputs.get("insurance", 2000)
 
+    # Recenter MC vacancy on the deal's own underwriting (sweep 2026-08-09).
+    # Analytic mean of the raw turnover process: E[turnover]x E[days]/365 +
+    # E[frictional]; unit count cancels in expectation.
+    _proc_mean = ((0.30 + 0.45 + 0.60) / 3) * ((20.0 + 45.0 + 120.0) / 3) / 365.0 + 0.01
+    _deal_loss = inputs.get("vacancy", 0.07) + inputs.get("bad_debt", 0.0)
+    _vac_shift = _deal_loss - _proc_mean
+    vacancy_note = (f"MC vacancy centered on underwriting {_deal_loss:.1%} "
+                    f"(raw process mean {_proc_mean:.1%}, shift {_vac_shift:+.1%})")
+
     # Weighted avg rent for RentCast lookup
     total_units = sum(g["units"] for g in inputs["unit_mix"])
     wt_rent = (sum(g["units"] * g["rent"] for g in inputs["unit_mix"]) / total_units
@@ -1289,49 +1343,53 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         _cap_vintage = fp["capex_vintage"]
 
     def _draw_vintage_capex_annual(age):
-        """Draw one year's capex for a property of given effective age ($/unit)."""
-        base = _age_band_base(age)
+        """Average annual capex/unit over the hold at a given effective age.
 
-        # Lumpy roof event: n_buildings = max(1, round(units/4))
+        Sweep 2026-08-09 rewrite: the prior version used lifetime-cumulative-
+        shaped probabilities ((age-10)/30 etc.) as ANNUAL event probabilities
+        and charged the resulting single lumpy year for EVERY year of the hold
+        — at age 25+ the draw degenerated to the $3,000 cap almost surely.
+        Now each hold year is simulated with annual hazards (HVAC ~15-20yr
+        life: ramps from age 8, capped 12%/yr; roof ~20-30yr life: ramps from
+        age 12, capped 9%/yr), age advances, and the hold-average is returned
+        (the engine applies capex_unit uniformly per year).
+        """
+        hold = int(inputs.get("hold_years", 5) or 5)
         n_bldgs = max(1, round(n_units_int / 4))
-        roof_prob = max(0.0, (age - 15) / 40.0)
-        roof_lo = 8000.0
-        roof_mode = 11500.0
-        roof_hi = 15000.0
+        roof_lo, roof_mode, roof_hi = 8000.0, 11500.0, 15000.0
         if _cap_vintage and "roof_event" in _cap_vintage:
             rv = _cap_vintage["roof_event"]
             roof_lo = rv.get("cost_low", roof_lo)
             roof_mode = rv.get("cost_mode", roof_mode)
             roof_hi = rv.get("cost_high", roof_hi)
-        roof_cost = 0.0
-        for _ in range(n_bldgs):
-            if rng.random() < roof_prob:
-                roof_cost += _tri_icdf(rng.random(), roof_lo, roof_mode, roof_hi)
-
-        # Lumpy HVAC event: per unit
-        hvac_prob = max(0.0, (age - 10) / 30.0)
-        hvac_lo = 4500.0
-        hvac_mode = 5750.0
-        hvac_hi = 7000.0
+        hvac_lo, hvac_mode, hvac_hi = 4500.0, 5750.0, 7000.0
         if _cap_vintage and "hvac_event_per_unit" in _cap_vintage:
             hv = _cap_vintage["hvac_event_per_unit"]
             hvac_lo = hv.get("cost_low", hvac_lo)
             hvac_mode = hv.get("cost_mode", hvac_mode)
             hvac_hi = hv.get("cost_high", hvac_hi)
-        hvac_cost = 0.0
-        for _ in range(n_units_int):
-            if rng.random() < hvac_prob:
-                hvac_cost += _tri_icdf(rng.random(), hvac_lo, hvac_mode, hvac_hi)
-
         cap_per_unit = 3000.0
         if _cap_vintage and "cap_per_unit" in _cap_vintage:
             cap_per_unit = _cap_vintage["cap_per_unit"]
 
-        if n_units_int > 0:
-            total = base + (roof_cost + hvac_cost) / n_units_int
-        else:
-            total = base
-        return min(total, cap_per_unit)
+        total = 0.0
+        for k in range(hold):
+            a = age + k
+            hvac_prob = min(0.12, max(0.0, (a - 8) * 0.008))
+            roof_prob = min(0.09, max(0.0, (a - 12) * 0.006))
+            roof_cost = 0.0
+            for _ in range(n_bldgs):
+                if rng.random() < roof_prob:
+                    roof_cost += _tri_icdf(rng.random(), roof_lo, roof_mode, roof_hi)
+            hvac_cost = 0.0
+            for _ in range(n_units_int):
+                if rng.random() < hvac_prob:
+                    hvac_cost += _tri_icdf(rng.random(), hvac_lo, hvac_mode, hvac_hi)
+            yr_total = _age_band_base(a)
+            if n_units_int > 0:
+                yr_total += (roof_cost + hvac_cost) / n_units_int
+            total += min(yr_total, cap_per_unit)
+        return total / max(hold, 1)
 
     # --- Triangular params (p10/p50/p90 → lo/mode/hi) ---
     # We use p10/p50/p90 as lo/mode/hi for the triangular to keep the implementation
@@ -1357,7 +1415,12 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         )
         physical_vac = days_vacant_total / max(n_units_int * 365, 1)
         frictional = rng.uniform(0.0, 0.02)  # collections / other losses
-        vacancy = max(0.0, physical_vac + frictional)
+        # Sweep 2026-08-09: the raw process (mean ~8.6% loss) replaced the
+        # deal's own underwriting outright — a 13.7%-actual-loss deal got a
+        # generic 8.6% center and MC P50 nearly doubled the deterministic base.
+        # Recenter: keep the process's dispersion/correlation, shift its mean
+        # onto the deal's underwritten vacancy + bad debt (house rule 08-04).
+        vacancy = max(0.0, physical_vac + frictional + _vac_shift)
         p = dict(inputs)
         # frictional replaces the static bad-debt line - zero it to avoid
         # double-counting collections losses (red-team 2026-08-03)
@@ -1380,12 +1443,17 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
 
         try:
             r = run(p)
-            return r["levered_irr"]
+            irr = r["levered_irr"]
+            # levered_irr None here means the flows never turn positive —
+            # equity wiped. Count it as a total-loss draw (-100%), not a
+            # silently dropped one that truncates the left tail (sweep 2026-08-09).
+            return -1.0 if irr is None else irr
         except Exception:
             return None
 
     # --- Auto-scale or fixed n ---
     irrs = []
+    n_failed = 0
     target_se = 0.005  # 0.5 percentage points
     max_draws = 20000
     se_p10 = float("nan")
@@ -1396,22 +1464,35 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
             v = _draw_one()
             if v is not None:
                 irrs.append(v)
+            else:
+                n_failed += 1
         irrs.sort()
         if len(irrs) >= 10:
             se_p10 = _bootstrap_se_p10(irrs, rng=boot_rng)
     else:
-        # Auto-scale: batches of 1000
+        # Auto-scale: batches of 1000. Bound by ATTEMPTS, not valid draws —
+        # a deal whose every draw errors would otherwise loop forever
+        # (sweep 2026-08-09).
         batch = 1000
-        while len(irrs) < max_draws:
+        attempts = 0
+        while len(irrs) < max_draws and attempts < 3 * max_draws:
             for _ in range(batch):
+                attempts += 1
                 v = _draw_one()
                 if v is not None:
                     irrs.append(v)
+                else:
+                    n_failed += 1
             irrs.sort()
             if len(irrs) >= 10:
                 se_p10 = _bootstrap_se_p10(irrs, rng=boot_rng)
                 if se_p10 < target_se:
                     break
+
+    if n_failed:
+        print(f"WARNING [monte_carlo]: {n_failed} draw(s) raised errors and were "
+              "excluded — quoted percentiles cover the surviving draws only.",
+              file=sys.stderr)
 
     n_draws = len(irrs)
 
@@ -1419,8 +1500,10 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         return {
             "p10": None, "p50": None, "p90": None,
             "p_above_13": None, "n_valid": 0, "n_draws": 0,
+            "n_failed": n_failed,
             "se_p10": float("nan"), "irr_samples": [],
             "rent_level_note": rent_level_note,
+            "vacancy_note": vacancy_note,
             "params_provenance": params_provenance,
         }
 
@@ -1436,7 +1519,9 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         "n_draws": n_draws,
         "se_p10": se_p10,
         "irr_samples": irrs,
+        "n_failed": n_failed,
         "rent_level_note": rent_level_note,
+        "vacancy_note": vacancy_note,
         "params_provenance": params_provenance,
     }
 
@@ -1577,13 +1662,17 @@ def main():
                     help="solve for price to hit this IRR (e.g. 0.16)")
     ap.add_argument("--tornado", action="store_true", help="sensitivity table")
     ap.add_argument("--mc", action="store_true", help="Full Monte Carlo report (auto-scale n)")
+    ap.add_argument("--year-built", type=int, metavar="YYYY",
+                    help="property vintage; activates vintage capex in every MC "
+                         "(without it the MC uses the flat reserve and warns)")
     args = ap.parse_args()
 
     inputs = _load_deal(args.deal)
     r = run(inputs)
 
     # Quick 1000-draw MC for IRR interval (always shown in base report)
-    quick_mc = monte_carlo(inputs, n=1000, seed=42, deal_name=args.deal)
+    quick_mc = monte_carlo(inputs, n=1000, seed=42, deal_name=args.deal,
+                           year_built=args.year_built)
     irr_pct = r["levered_irr"] * 100 if r["levered_irr"] is not None else float("nan")
     if quick_mc["p10"] is not None:
         irr_interval = (f"  [{quick_mc['p10']*100:.1f}%, P90 {quick_mc['p90']*100:.1f}%]"
@@ -1601,10 +1690,16 @@ def main():
     print(f"  Y1 DSCR(+capex):{r['dscr_post_capex'][1]:>10.2f}x")
     print(f"  Levered IRR:    {irr_pct:>10.1f}%{irr_interval}")
     print(f"  Equity Multiple:{r['equity_multiple']:>10.2f}x")
-    print(f"  LP IRR:         {r['lp_irr']*100 if r['lp_irr'] else float('nan'):>10.2f}%")
-    print(f"  GP IRR:         {r['gp_irr']*100 if r['gp_irr'] else float('nan'):>10.2f}%")
+    if r.get("waterfall_invalid"):
+        print(f"  LP/GP IRR:      n/a — negative distributable cash in year(s) "
+              f"{r.get('waterfall_neg_years')}; splits would overstate")
+    else:
+        print(f"  LP IRR:         {r['lp_irr']*100 if r['lp_irr'] else float('nan'):>10.2f}%")
+        print(f"  GP IRR:         {r['gp_irr']*100 if r['gp_irr'] else float('nan'):>10.2f}%")
     if quick_mc.get("rent_level_note"):
         print(f"  Rent-level MC:  {quick_mc['rent_level_note']}")
+    if quick_mc.get("vacancy_note"):
+        print(f"  Vacancy MC:     {quick_mc['vacancy_note']}")
 
     if args.solve:
         target = args.solve
@@ -1617,7 +1712,8 @@ def main():
         else:
             disc = (1 - res["price"] / inputs["price"]) * 100
             solve_inputs = dict(inputs, price=res["price"])
-            solve_mc = monte_carlo(solve_inputs, n=1000, seed=42, deal_name=args.deal)
+            solve_mc = monte_carlo(solve_inputs, n=1000, seed=42, deal_name=args.deal,
+                                   year_built=args.year_built)
             p_target = sum(1 for x in solve_mc["irr_samples"] if x >= target) / max(len(solve_mc["irr_samples"]), 1)
             print(f"  Price: ${res['price']:,.0f}  ({disc:.0f}% below asking, IRR {res['irr']*100:.1f}%)  "
                   f"P(IRR>={target*100:.0f}%)={p_target*100:.0f}%")
@@ -1631,7 +1727,8 @@ def main():
 
     if args.mc:
         print("\n--- MONTE CARLO (auto-scale, SE<0.5pts) ---")
-        mc = monte_carlo(inputs, n=0, seed=42, deal_name=args.deal)
+        mc = monte_carlo(inputs, n=0, seed=42, deal_name=args.deal,
+                         year_built=args.year_built)
         print(f"  P10 IRR:        {mc['p10']*100:.2f}%")
         print(f"  P50 IRR:        {mc['p50']*100:.2f}%")
         print(f"  P90 IRR:        {mc['p90']*100:.2f}%")

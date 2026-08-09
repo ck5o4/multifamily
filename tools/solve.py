@@ -12,6 +12,7 @@ selling at a richer valuation than it bought at.
 """
 
 import shutil
+import sys
 
 import latax
 import recalc as rc
@@ -54,6 +55,21 @@ def solve_price(model_path, spec, target_irr, asking, fixed, location,
 
     Lower price means higher IRR, so the search runs downward from asking.
     """
+    # Same loud warning as pymodel.solve_price: frozen taxes bias every trial
+    # price optimistic (this exact omission skewed live-deal ladders 2026-08-02/03).
+    if not location:
+        print("WARNING [solve.solve_price]: no location - property taxes stay FROZEN "
+              "at the workbook value across all trial prices, biasing solved prices "
+              "optimistic. Pass --location for per-price reassessment. "
+              "(This exact omission skewed live-deal ladders on 2026-08-02/03.)",
+              file=sys.stderr)
+    else:
+        _tax, _exp = latax.estimate_tax(asking, location, commercial_share)
+        if _tax is None:
+            print(f"WARNING [solve.solve_price]: tax estimate unavailable for "
+                  f"{location!r} ({_exp}) - property taxes stay FROZEN at the workbook "
+                  "value across all trial prices, biasing solved prices optimistic.",
+                  file=sys.stderr)
     hi = asking
     irr_hi, _ = _irr_at(model_path, spec, hi, fixed, location, commercial_share, work_path)
     if irr_hi >= target_irr:

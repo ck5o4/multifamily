@@ -231,8 +231,15 @@ def simulate(scenario):
                             "{:,.0f}".format(shortfall),
                         )
                     )
-                    # Record the shortfall as an external outflow in port_cf
-                    port_cf[yr] -= shortfall
+                    if yr == 0:
+                        # Extra capital beyond the initial cheque
+                        port_cf[0] -= shortfall
+                if yr > 0:
+                    # Sweep 2026-08-09: distributions are credited to port_cf in
+                    # full when received, so a later buy funded from that cash
+                    # must be debited in full — debiting only the shortfall
+                    # double-counted every recycled dollar as investor return.
+                    port_cf[yr] -= eq
 
                 cash_out_equity += eq
                 cumulative_deployed += eq

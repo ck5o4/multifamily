@@ -229,6 +229,7 @@ def fmt_input(key, v):
         "gc_overhead", "hard_contingency", "soft_contingency", "gc_profit",
         "developer_fee", "valuation_cap", "perm_ltv", "mip", "perm_fee",
         "land_closing_pct", "constr_loan_fee",
+        "refi_rate", "refi_ltv", "refi_valuation_cap",
     ):
         return f"{v * 100:.2f}%"
     if isinstance(v, float) and not v.is_integer():

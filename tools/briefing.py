@@ -49,6 +49,38 @@ def section(title):
     print(f"{'─'*60}")
 
 
+def _census_key_present() -> bool:
+    """CENSUS_API_KEY in the environment or the repo .env (market.py reads it)."""
+    import os
+    if os.environ.get("CENSUS_API_KEY"):
+        return True
+    env_path = ROOT / ".env"
+    try:
+        for line in env_path.read_text().splitlines():
+            if line.strip().startswith("CENSUS_API_KEY=") and \
+                    line.split("=", 1)[1].strip():
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _is_mhp(name: str, wb_path: Path) -> bool:
+    """True if the deal name says MHP or the workbook unit types include lot rent."""
+    if "mhp" in name.lower():
+        return True
+    try:
+        import openpyxl
+        ws = openpyxl.load_workbook(wb_path, data_only=True)["Inputs"]
+        for row in range(3, 11):
+            t = ws.cell(row=row, column=6).value
+            if t and "lot" in str(t).lower():
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def main():
     print(f"RIDGEBACK PEAK — MORNING BRIEFING  {TODAY}")
 
@@ -139,6 +171,12 @@ def main():
                 print(f"  {name:<24} {mkt}  {int(total_units)}u  "
                       f"${pred['total_low']:,.0f}–${pred['total_high']:,.0f}  "
                       f"(mid ${pred['total_point']:,.0f})")
+                for cav in pred.get("caveats", []):
+                    print(f"    caveat: {cav}")
+                if _is_mhp(name, wb_path):
+                    print("    hedonic market value UNRELIABLE for MHPs "
+                          "(apartment-sale sample, 1 MHP in n=56) — income "
+                          "approach primary")
             except SystemExit as e:
                 reason = str(e).replace("\n", " ").strip()
                 print(f"  {name}: market approach: n/a - {reason}")
@@ -175,10 +213,10 @@ def main():
                 found_notes.append(f"  [{name}] {h['note'][:80]}")
     for fn in found_notes:
         print(fn)
-    # Standing reminders
-    print("  Census key pending  (https://api.census.gov/data/key_signup.html)")
-    print("  Crexi Intelligence purchase pending")
-    print("  check Deal Flow digest in Gmail")
+    # Census key: derived from live state, not asserted (house rule:
+    # verify-before-instructing). Key live in .env since 2026-08-05.
+    if not _census_key_present():
+        print("  Census key pending  (https://api.census.gov/data/key_signup.html)")
 
     print()
 

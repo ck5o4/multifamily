@@ -361,6 +361,17 @@ def predict(market, units, year=2026, fit_result=None, loud=True):
     low = math.exp(log_pred - res_se)
     high = math.exp(log_pred + res_se)
 
+    # Fit-time warnings must reach predict-time consumers (icmemo/briefing),
+    # not just whoever ran `hedonic.py fit` once.
+    caveats = [
+        "year coefficient is a market-composition artifact (2021-22 = Baton "
+        "Rouge-only sales, 2023-24 = no data, 2026 = NOLA/Northshore/Lafayette-"
+        "heavy) — do NOT read it as a time trend",
+    ]
+    if fr["r2"] < 0.40:
+        caveats.append(f"R² = {fr['r2']:.3f} < 0.40 — model explains little "
+                       "variation; use the band, not the point estimate")
+
     result = {
         "market": market,
         "units": units,
@@ -372,6 +383,7 @@ def predict(market, units, year=2026, fit_result=None, loud=True):
         "total_low": round(low * units),
         "total_high": round(high * units),
         "band_note": f"±1 residual SE in log space (~±{(fr['band_factor'] * 100):.0f}%)",
+        "caveats": caveats,
     }
 
     if loud:
@@ -386,6 +398,8 @@ def predict(market, units, year=2026, fit_result=None, loud=True):
         print(f"  Total   high:   ${result['total_high']:>12,}")
         print(f"  Band:   {result['band_note']}")
         print(f"  Model:  n={fr['n']}, R²={fr['r2']:.3f}, SE={res_se:.4f}")
+        for cav in caveats:
+            print(f"  CAVEAT: {cav}")
 
     return result
 

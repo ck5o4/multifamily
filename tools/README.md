@@ -137,6 +137,13 @@ Weekly snapshots = leasing velocity (listings that disappear), price cuts on
 sitting units, concession activity, seasonality. Raw HTML is kept per snapshot in
 `market-data/` so pages can be re-parsed later.
 
+Prices come from schema.org JSON-LD when the page has it; a regex heuristic is
+the fallback only when JSON-LD finds nothing (never both, which double-counted).
+The heuristic rejects $ amounts near discount/fee language ("$1,000 OFF" banners
+were once recorded as rents), and "$X off" promos are logged as concessions with
+their amounts. `assumptions` excludes `src=heuristic` rows from the rent medians
+by default; `--include-heuristic` overrides with a warning.
+
 Legal line, stated in the module docstring: public advertised prices observed
 unilaterally = the standard market survey, automated. No pooled non-public data,
 no coordination with anyone - that is the conduct the RealPage case was about.
@@ -154,13 +161,15 @@ value-add business plan, sources & uses, five-year pro forma with DSCR by year,
 and the repayment/takeout story. Every number is pulled live from the deal's
 recalculated workbook so the package can never disagree with the underwriting.
 Items the system cannot know (bio, photos, entity name) are highlighted [FILL].
-Refuses politely if the workbook has failing checks - never send a banker
-numbers that don't tie.
+Refuses (exit 1) if the workbook has failing checks or formula errors, listing
+the failing rows - never send a banker numbers that don't tie. `--force`
+generates anyway with a prominent warning banner in the document header.
 
 ## Portfolio / deal-flow tracker
 
     python3 tools/portfolio.py add "oak-street" --stage underwriting
     python3 tools/portfolio.py stage "oak-street" offered --note "offered 725k"
+    python3 tools/portfolio.py note "oak-street" "seller countered 740k"  # note only, stage unchanged
     python3 tools/portfolio.py board                 # pipeline at a glance
     python3 tools/portfolio.py plan "oak-street"     # lock yr-1 targets from the deal workbook
     python3 tools/portfolio.py log "oak-street" june.csv   # ingest bank/PM CSV export
@@ -171,9 +180,13 @@ State lives in `portfolio/deals.json` - the file a future dashboard will render.
 `plan` freezes the underwritten monthly targets (rent, opex, NOI, cash flow)
 from the deal's recalculated workbook; `log` parses any date/description/amount
 CSV a bank or property manager exports and auto-categorizes (rent, debt,
-insurance, repairs, reno, distributions); `status` compares actual monthly net
-to the plan and answers "on track?" per month. The payback ledger tracks the
-investor's repaid share against their contributed capital.
+insurance, repairs, reno, distributions) - exports with separate debit/credit
+columns are handled as credit minus debit per row; `status` compares actual
+monthly net to the plan and answers "on track?" per month. The payback ledger
+tracks the investor's repaid share against their contributed capital. `note`
+appends to a deal's history without touching its stage; `stage` warns (without
+blocking) on backward moves against the documented order
+watching < underwriting < offered < under_contract < owned < sold.
 
 ## Strategy comparison (hold vs refi vs sell)
 

@@ -105,6 +105,47 @@ def _parcel_tax_reconcile(parish: str, assessment: float, price: float) -> list[
     return [l for l in lines if l]
 
 
+def _infer_parish(address: str):
+    """Infer parish from an address by whole-token city matching.
+
+    Tokenizes via latax._norm (commas/state/zip stripped), matches multi-word
+    city names as whole token runs, longest match, preferring matches nearest
+    the END of the string (the city position). Fixes 'Central Ave, Metairie'
+    resolving to EBR via the unanchored substring 'central'."""
+    from latax import CITY_TO_PARISH, _norm
+    tokens = _norm(address).split()
+    best = None  # (end_index, n_words, parish)
+    for city, par in CITY_TO_PARISH.items():
+        ct = city.split()
+        n = len(ct)
+        for i in range(len(tokens) - n + 1):
+            if tokens[i:i + n] == ct:
+                cand = (i + n, n, par)
+                if best is None or cand[:2] > best[:2]:
+                    best = cand
+    return best[2] if best else None
+
+
+def _is_mhp(deal: str, wb_path: Path) -> bool:
+    """True if the deal name says MHP or the workbook unit types include lot rent."""
+    if "mhp" in deal.lower():
+        return True
+    try:
+        import openpyxl
+        ws = openpyxl.load_workbook(wb_path, data_only=True)["Inputs"]
+        for row in range(3, 11):
+            t = ws.cell(row=row, column=6).value
+            if t and "lot" in str(t).lower():
+                return True
+    except Exception:
+        pass
+    return False
+
+
+MHP_HEDONIC_CAVEAT = ("hedonic market value UNRELIABLE for MHPs (apartment-sale "
+                      "sample, 1 MHP in n=56) — income approach primary")
+
+
 def main():
     ap = argparse.ArgumentParser(description="IC memo generator")
     ap.add_argument("deal", help="deal name under deal-intake/")
@@ -213,8 +254,12 @@ def main():
     equity = r["total_equity"]
     irr = (r["levered_irr"] or 0) * 100
     em = r["equity_multiple"]
-    lp_irr = (r["lp_irr"] or 0) * 100
     loan = r["loan_amount"]
+    # Contract with pymodel: when any hold year has negative distributable cash,
+    # run() returns lp_irr/gp_irr/lp_em = None and waterfall_invalid=True. Never
+    # quote LP/GP splits in that state (they would overstate).
+    wf_invalid = bool(r.get("waterfall_invalid")) or r.get("lp_irr") is None
+    neg_years = r.get("waterfall_neg_years") or []
     p("| Metric              | Value             |")
     p("|---------------------|-------------------|")
     p(f"| Ask Price           | ${price:>14,.0f} |")
@@ -224,8 +269,16 @@ def main():
     p(f"| Total Equity Req    | ${equity:>14,.0f} |")
     p(f"| Y1 DSCR             | {dscr1:>14.2f}x |")
     p(f"| Levered IRR         | {irr:>14.1f}% |")
-    p(f"| LP IRR              | {lp_irr:>14.1f}% |")
+    if wf_invalid:
+        p(f"| LP IRR              | {'n/a':>15} |")
+    else:
+        p(f"| LP IRR              | {r['lp_irr']*100:>14.1f}% |")
     p(f"| Equity Multiple     | {em:>14.2f}x |")
+    if wf_invalid:
+        blank()
+        yrs = ", ".join(str(y) for y in neg_years) if neg_years else "unknown"
+        p(f"LP/GP returns: n/a — negative distributable cash in year(s) {yrs}; "
+          "splits would overstate")
     blank()
 
     # Three-target solve ladder
@@ -264,18 +317,24 @@ def main():
     blank()
 
     # Monte Carlo
-    h2("MONTE CARLO SUMMARY (n=2,000)")
+    h2("MONTE CARLO SUMMARY")
     try:
         mc = pymodel.monte_carlo(inputs, deal_name=deal)
         if mc["p10"] is not None:
+            # the call auto-scales - report the actual n, not a hardcoded 2,000
+            p(f"- **Draws:** {mc.get('n_draws', mc.get('n_valid', 0)):,} (auto-scaled)")
             p(f"- **P10 IRR:** {mc['p10']*100:.1f}%")
             p(f"- **P50 IRR:** {mc['p50']*100:.1f}%")
             p(f"- **P90 IRR:** {mc['p90']*100:.1f}%")
             p(f"- **P(IRR ≥ 13%):** {mc['p_above_13']*100:.1f}%  ({mc['n_valid']:,} valid runs)")
+            if mc.get("vacancy_note"):
+                p(f"- {mc['vacancy_note']}")
         else:
             p("Monte Carlo returned no valid runs.")
     except Exception as e:
         p(f"MC unavailable: {e}")
+    p("- House rule 2026-08-04: vacancy risk is judged by deterministic stress "
+      "grid, not MC probabilities")
     blank()
 
     # Hedonic market approach
@@ -307,6 +366,10 @@ def main():
         fr = hedonic.fit(verbose=False)
         p(f"- *Model: n={fr['n']}, R²={fr['r2']:.3f}, SE={fr['res_se']:.4f} — "
           f"use the band, not the point estimate*")
+        for cav in pred.get("caveats", []):
+            p(f"- *Caveat: {cav}*")
+        if _is_mhp(deal, wb_path):
+            p(f"- **{MHP_HEDONIC_CAVEAT}**")
     except SystemExit as e:
         reason = str(e).replace("\n", " ").strip()
         p(f"market approach: n/a — {reason}")
@@ -336,15 +399,10 @@ def main():
     # Parcel tax reconciliation
     if args.assessment and price:
         h2("PARCEL TAX RECONCILIATION")
-        # Infer parish from address
+        # Infer parish from address (whole-token, end-anchored city match)
         parish = None
         if args.address:
-            addr_low = args.address.lower()
-            from latax import CITY_TO_PARISH
-            for city, par in CITY_TO_PARISH.items():
-                if city in addr_low:
-                    parish = par
-                    break
+            parish = _infer_parish(args.address)
         if parish is None:
             # Try deal name hints
             if "baker" in deal:

@@ -157,6 +157,11 @@
         "date": "2026-08-05",
         "stage": "underwriting",
         "note": "SELLER BASIS INTEL (Zillow public records): D'Luca PURCHASED 5/31/2024, listed 6/20/2025 at 1.925M (13-month flip attempt), cut to 1.699M 12/2/2025. Prior sale 1/3/2023 - park traded twice in 17 months. Short-term holder exiting; 2024 basis likely well below ask; finite patience. New tour question: why has this park traded twice since 2023? Exact basis path: acquisition mortgage amount at Livingston Clerk (LA non-disclosure hides price, not loans) or Crexi Intelligence once active. SmartCAMA dead end confirmed (no price data - non-disclosure state)."
+      },
+      {
+        "date": "2026-08-09",
+        "stage": "underwriting",
+        "note": "SWEEP CORRECTIONS 2026-08-09: MC probabilities in IC_MEMO_2026-08-05 were inflated by engine bug (vacancy substitution 13.7pct -> 8.6pct): at-ask P(>=13) 69.8pct -> 44-47pct honest (P50 ~12pct vs det 9.9pct). Does NOT change the pursue case: basis was never ask - 1.25-1.27M w/ seller carry, 27.5pct honest deterministic base w/ stress-grid all-pass (08-04) remains the decision standard. Rent-growth marginal (fitted 3.2pct P50 vs 2pct underwrite) is the remaining known MC optimism - deterministic+stress grid stays authoritative per house rule."
       }
     ],
     "plan": null,
@@ -187,6 +192,16 @@
         "date": "2026-08-05",
         "stage": "dead",
         "note": "stage corrected to DEAD (audit finding): 3.0M ask = ~7.2pct honest cap, flood AE, equity 2.6x capital; only revisit if price approaches ~2.0M with heavy carry"
+      },
+      {
+        "date": "2026-08-09",
+        "stage": "dead",
+        "note": "PYMODEL LADDER RUN 2026-08-09 (was pending since 08-04; per-price taxes via latax Prairieville, honest inputs from seller actuals: vacancy 13.5+0.5 bad debt vs 2026 economic 86pct, mgmt 8pct, ins 1289/u actual incl flood, R&M 700/u, mktg 400/u, capex 400/u, GPR 432.3k in-place): 13pct at 2.48M (17pct off) / 16pct at 2.269M (24pct off) / 22pct at 1.999M (33pct off). NOI 226k at ask = 7.54pct cap, IRR 9.7pct AT ASK - confirms dead at 3.0M. CAPITAL BINDS EVERYWHERE: equity 688k at 2.48M = 2.3x capital; pure capital fit ~1.08M; even 22pct price needs 555k equity. Path would be ~390-400k seller carry AT ~2.48M. MC at 2.48M: P(>=13)=88pct at claimed 2018 vintage, 76pct at effective-2012 aging (mixed 8-manufacturer titles). TORNADO KILL FACTOR: insurance +50pct -> 4.9pct IRR (flood AE exposure is THE risk; 15.6k of 38.7k premium is flood). Stage stays DEAD unless seller comes to ~2.4-2.5M WITH substantial carry - decline-with-reasoning already in drafted Vercher reply. Workbook built: hwy42-mhp_acq.xlsx + rentroll_hwy42_INPLACE.csv"
+      },
+      {
+        "date": "2026-08-09",
+        "stage": "dead",
+        "note": "SWEEP CORRECTIONS 2026-08-09: (1) at-ask IRR was 9.7pct using stale workbook exit cap 7.5pct; honest (going-in+50bps=8.04pct after handshake): 6.2pct - deader at ask. Ladder unaffected (solver re-derives exit per price): 2.48M/2.269M/1.999M stands. (2) MC probabilities were inflated by engine bug (MC replaced deal vacancy 14pct with generic 8.6pct process): P(>=13) at 2.48M corrected 88pct -> 59pct (yb 2018) / 52pct (conservative yb 2012), P50 15.1/13.5pct. Deal still clears 13pct deterministic at 2.48M but the cushion is thinner - insurance quote (flood AE) even more decisive."
       }
     ],
     "plan": null,
@@ -202,6 +217,11 @@
         "date": "2026-08-08",
         "stage": "underwriting",
         "note": "1429 Governor Nicholls St, Treme, Orleans Parish. 8u, ask 849k (106k/u), built 1970, 'most units renovated', 4 off-street parking, HUMU zoning, 8 DOM. Listed by Eric 'Celso' Hernandez, NOLA Living Realty, 504-301-9757 (Crexi phone suffix 9757 matches his brokerage listing). FLOOD Zone X levee-protected, not SFHA - no lender-required flood policy. Screen at 3000/u insurance + Orleans 131.99 mills: at ask 1400/mo rent = 5.3pct IRR FAIL, 1500 = 8.8pct, 1600 = 12.6pct. RentCast Treme 1bd/650sf = 1570 est (range 1150-2000) BUT same-block comps 0.1mi on Gov Nicholls/Treme St cluster 1290-1500; the 2050-2350 comps are 0.3-0.4mi Quarter-adjacent and are NOT this building. HONEST LADDER at 1400/mo: 13pct = 682k, 16pct = 634k (20-25pct below ask). At 1600/mo 13pct = 841k, essentially at ask. UNIT MIX UNKNOWN - 2BR units would raise blended rent and the ladder. Equity 236-297k FITS capital. VERDICT PURSUE - request rent roll, T-12, unit mix, renovation scope, and whether any income is short-term rental."
+      },
+      {
+        "date": "2026-08-09",
+        "stage": "underwriting",
+        "note": "REPRODUCIBLE REBUILD 2026-08-09 (sweep finding: 08-08 screen was in-session math, never persisted): built rentroll_treme_ESTIMATED.csv (8x 1BR/650sf at 1400 blended - same recorded basis) + treme-gov-nicholls_acq.xlsx via intake (ins 3000/u, mgmt 8pct, Orleans latax). CANONICAL LADDER (per-price taxes): 13pct = 714k (16pct off ask) / 16pct = 664k / 22pct = 580k; at ask 849k: 7.68pct cap, NOI 65.2k, IRR 6.6pct, equity 267k FITS capital, DSCR 1.30 binds. Prior unpersisted ladder (682k/634k) superseded. PURSUE unchanged - offer zone 580-664k pending rent roll/T-12/unit mix from Hernandez (2BR units would raise the ladder). In test_pymodel parity? NOT yet - add after seller docs replace estimates."
       }
     ],
     "plan": null,

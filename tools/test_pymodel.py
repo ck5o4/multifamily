@@ -281,6 +281,7 @@ def main():
         "baker-trails",
         "eden-church-mhp",
         "covington-2nd",
+        "hwy42-mhp",
     ]
 
     results = []

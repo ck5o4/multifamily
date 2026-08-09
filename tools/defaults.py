@@ -8,6 +8,8 @@ Precedence when filling a model: manual override > parsed from the deal's own
 documents > template default.
 """
 
+import sys
+
 # value, source, note
 # source: "stoa"    = Stoa's exact tested figure, unchanged
 #         "updated" = changed from Stoa, reason recorded (see Benchmarks tabs)
@@ -96,6 +98,13 @@ DEV_TEMPLATE = {
 
 TEMPLATES = {"acq": ACQ_TEMPLATE, "dev": DEV_TEMPLATE}
 
+# Keys whose model input is a fraction (0.08, not 8). Inferred from the
+# template values; derived/zero-default fraction keys added by name since
+# their template value carries no type information.
+FRACTION_KEYS = {k for t in TEMPLATES.values() for k, (v, _, _) in t.items()
+                 if k.endswith("_pct") or (isinstance(v, float) and 0 < v <= 1)}
+FRACTION_KEYS |= {"exit_cap", "concessions"}
+
 
 def derive(key, units):
     """Deal-size-dependent defaults."""
@@ -123,10 +132,19 @@ def parse_override(text):
     if "=" not in text:
         raise ValueError(f"--set expects key=value, got {text!r}")
     k, v = text.split("=", 1)
-    v = v.strip()
+    k, v = k.strip(), v.strip()
     if v.endswith("%"):
-        return k.strip(), float(v[:-1]) / 100.0
-    return k.strip(), float(v)
+        return k, float(v[:-1]) / 100.0
+    val = float(v)
+    # A bare 8 on a fraction key writes 800% into the model.
+    if k in FRACTION_KEYS and val > 1:
+        if val > 1.5:
+            raise ValueError(f"{k}={v}: {k} is a fraction - did you mean {v}%? "
+                             f"Write {k}={v}% or {k}={val / 100}")
+        print(f"WARNING: --set {k}={v} taken literally as {val * 100:.0f}% - fraction "
+              f"keys are normally <= 1. Use {k}={v}% if you meant {v} percent.",
+              file=sys.stderr)
+    return k, val
 
 
 def resolve(model, units, parsed_keys, overrides):

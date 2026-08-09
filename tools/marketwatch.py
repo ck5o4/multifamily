@@ -46,9 +46,15 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 CONCESSION_RE = re.compile(
     r"(month\s+free|free\s+month|move[- ]in\s+special|special\s+offer|"
     r"\$0\s+deposit|waived?\s+(app|admin|deposit)|look\s*&?\s*lease|"
-    r"reduced\s+rate|limited\s+time)", re.I)
+    r"reduced\s+rate|limited\s+time|"
+    r"\$\s?[1-9][\d,]*(?:\.\d\d)?\s+off\b)", re.I)
 PRICE_RE = re.compile(r"\$\s?([1-9][\d,]{2,5})(?:\.\d\d)?")
 BED_NEAR_RE = re.compile(r"(\d)\s*(?:bed|br|bd)|studio", re.I)
+# A $ amount near these words is a discount/fee, not a rent (audit 2026-08-08:
+# Creekside's "$1,000 OFF 2 & 3 Bedrooms | $650 OFF 1 Bedrooms" banner became
+# two fake unit rows at $650/$1,000).
+DISCOUNT_CTX_RE = re.compile(
+    r"\b(off|discount|special|deposit|fee|admin|waived?|save)\b", re.I)
 
 
 def slugify(name):
@@ -120,6 +126,10 @@ def parse_heuristic(html):
         val = float(m.group(1).replace(",", ""))
         if not (400 <= val <= 5000):  # plausible monthly rent
             continue
+        # Context guard: reject amounts surrounded by discount/fee language.
+        ctx = text[max(0, m.start() - 40):m.end() + 40]
+        if DISCOUNT_CTX_RE.search(ctx):
+            continue
         window = text[max(0, m.start() - 120):m.end() + 120]
         bm = BED_NEAR_RE.search(window)
         beds = None
@@ -138,8 +148,10 @@ def parse_heuristic(html):
 
 def parse_page(html):
     units = parse_jsonld(html)
-    if len(units) < 2:  # jsonld thin or absent - fall back
-        units = units + parse_heuristic(html)
+    if not units:  # heuristic only when jsonld found nothing - never both
+        # (audit 2026-08-08: appending heuristic on top of jsonld double-counted
+        # the same listings on pages where jsonld was thin)
+        units = parse_heuristic(html)
     concessions = sorted(set(m.group(0).strip() for m in CONCESSION_RE.finditer(html)))
     return units, concessions
 
@@ -233,7 +245,7 @@ def cmd_report():
                 print("  concessions STARTED - demand softening")
 
 
-def cmd_assumptions():
+def cmd_assumptions(include_heuristic=False):
     """Underwriting inputs derived from observations: rent by bed count and
     absorption, with sample sizes so thin data cannot masquerade as evidence."""
     hist = _history()
@@ -242,11 +254,25 @@ def cmd_assumptions():
         print("no observations yet")
         return
     by_beds = {}
+    n_heuristic = 0
     for r in rows:
         for u in r.get("units", []):
+            # src='heuristic' rows are regex guesses, not structured listings -
+            # excluded from medians by default (the 2026-08-08 Creekside banner
+            # discounts are in history as heuristic rows).
+            if u.get("src") == "heuristic" and not include_heuristic:
+                n_heuristic += 1
+                continue
             if u.get("beds") is not None:
                 by_beds.setdefault(u["beds"], []).append(u["price"])
+    if include_heuristic:
+        print("WARNING: including src=heuristic rows - regex-scraped prices that "
+              "may be discounts, deposits, or fees, not asking rents.")
     print("OBSERVED ASKING RENT (all snapshots, all comps)")
+    if not by_beds:
+        print("  (no structured price observations yet)")
+    if n_heuristic:
+        print(f"  ({n_heuristic} heuristic row(s) excluded; --include-heuristic to override)")
     for beds in sorted(by_beds):
         p = sorted(by_beds[beds])
         med = p[len(p) // 2]
@@ -273,7 +299,7 @@ def main():
     elif cmd == "report":
         cmd_report()
     elif cmd == "assumptions":
-        cmd_assumptions()
+        cmd_assumptions(include_heuristic="--include-heuristic" in args)
     else:
         print(__doc__)
 

@@ -80,15 +80,26 @@ def interpret(zones):
             return 2
         return 3
 
-    z = next((p for p in zones if is_sfha(p)),
-             min(zones, key=_nonsfha_rank))
+    def _sfha_rank(p):
+        # worst-first among SFHA: VE > V > AE > A-family. A coastal AE+VE
+        # parcel must report VE (wave action), never whichever came first.
+        return {"VE": 0, "V": 1, "AE": 2}.get(p.get("FLD_ZONE", "?"), 3)
+
+    sfha_polys = [p for p in zones if is_sfha(p)]
+    z = (min(sfha_polys, key=_sfha_rank) if sfha_polys
+         else min(zones, key=_nonsfha_rank))
     zone = z.get("FLD_ZONE", "?")
     subty = (z.get("ZONE_SUBTY") or "").strip()
     if zone == "D":
         return ("D", False,
                 "Zone D = flood risk UNDETERMINED, not minimal. Lenders can "
                 "still require insurance; order a flood determination.")
-    if sfha:
+    if sfha and zone.startswith("V"):
+        note = ("SFHA, coastal high-hazard V zone with WAVE ACTION - lender "
+                "will REQUIRE flood insurance at V-zone rates (well above "
+                "A-zone). Get a flood quote before underwriting any further; "
+                "do not use the template insurance default.")
+    elif sfha:
         note = ("SFHA - lender will REQUIRE flood insurance. Get a flood quote "
                 "before underwriting any further; do not use the template "
                 "insurance default.")

@@ -9,8 +9,12 @@ nothing is typed twice, nothing can drift from the underwriting.
 Output is print-ready HTML: open it, Cmd+P, save as PDF, send to the banker.
 Personal items the system cannot know (bio, photos) are marked [FILL].
 
+Refuses (exit 1) if the workbook has failing checks or formula errors - never
+send a banker numbers that don't tie. --force overrides, stamping a prominent
+warning into the HTML header.
+
 Usage:
-  python3 tools/bankpackage.py <deal-name>
+  python3 tools/bankpackage.py <deal-name> [--force]
   # requires deal-intake/<deal>/<deal>_acq.xlsx to exist and be recalculated
 """
 
@@ -43,7 +47,7 @@ def n0(v):
     return f"{v:.0f}" if isinstance(v, (int, float)) else "-"
 
 
-def gather(deal):
+def gather(deal, force=False):
     wb = ROOT / "deal-intake" / deal / f"{deal}_acq.xlsx"
     if not wb.exists():
         sys.exit(f"no workbook at {wb} - run intake.py --deal {deal} ... --recalc first")
@@ -51,9 +55,18 @@ def gather(deal):
     s = rc.read_values(wb, ACQ["scalars"])
     checks = rc.read_checks(wb, ACQ)
     errors = rc.scan_errors(wb)
-    if errors or any(st != "OK" for _, st in checks):
-        print("WARNING: workbook has failing checks or formula errors - the package "
-              "will show numbers a banker can pick apart. Fix first.")
+    failing = [f"check: {label} -> {st}" for label, st in checks if st != "OK"]
+    failing += [f"formula error: {e}" for e in errors]
+    if failing:
+        print("Workbook has failing checks or formula errors - a banker can pick "
+              "these numbers apart:")
+        for f in failing:
+            print(f"  {f}")
+        if not force:
+            sys.exit("REFUSING to generate. Fix the workbook (recalc), or rerun "
+                     "with --force to generate anyway with a warning banner.")
+        print("--force given: generating anyway with a prominent warning in the "
+              "package header.")
     # rent roll straight from the inputs
     import openpyxl
     w = openpyxl.load_workbook(wb, data_only=True)["Inputs"]
@@ -75,10 +88,10 @@ def gather(deal):
     pf = ROOT / "portfolio" / "deals.json"
     if pf.exists():
         pd = json.loads(pf.read_text()).get(deal, {})
-    return wb, v, s, mix, years, pd
+    return wb, v, s, mix, years, pd, failing
 
 
-def build_html(deal, v, s, mix, years, pd):
+def build_html(deal, v, s, mix, years, pd, failing=None):
     price = s.get("purchase_price")
     loan = v.get("loan_amount")
     reno = v.get("reno_budget") or 0
@@ -153,7 +166,10 @@ def build_html(deal, v, s, mix, years, pd):
   .kpi .n {{ font-size: 16pt; font-weight:700; }}
   .kpi .l {{ font-size: 8.5pt; text-transform:uppercase; letter-spacing:1px; color:#666; }}
 </style></head><body>
-
+{('<div style="border:3px solid #b00020; color:#b00020; padding:12px 16px; '
+  'margin:16px 0; font-weight:700;">WARNING - GENERATED WITH --force: the '
+  'underwriting workbook has FAILING CHECKS / FORMULA ERRORS. Do NOT send to '
+  'a banker until fixed.<br>' + '<br>'.join(failing) + '</div>') if failing else ''}
 <div class="cover">
   <h1>{deal.replace('-', ' ').title()}</h1>
   <div class="sub">{n0(units)}-Unit Multifamily Acquisition &mdash; Louisiana</div>
@@ -229,12 +245,14 @@ personal financial statement &middot; entity documents &middot; insurance quotes
 
 
 def main():
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    force = "--force" in sys.argv[1:]
+    if not args:
         print(__doc__)
         return
-    deal = sys.argv[1]
-    wb, v, s, mix, years, pd = gather(deal)
-    html = build_html(deal, v, s, mix, years, pd)
+    deal = args[0]
+    wb, v, s, mix, years, pd, failing = gather(deal, force=force)
+    html = build_html(deal, v, s, mix, years, pd, failing=failing)
     out = wb.parent / f"{deal}_bank_package.html"
     out.write_text(html)
     print(f"bank package -> {out}")

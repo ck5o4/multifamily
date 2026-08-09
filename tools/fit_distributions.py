@@ -61,10 +61,14 @@ def annual_yoy_from_monthly(rows: list) -> list:
     Returns list of (year:int, growth:float).
     """
     by_year = {}
+    last_month = {}
     for date_str, val in rows:
         yr = int(date_str[:4])
         by_year[yr] = val
-    years = sorted(by_year)
+        last_month[yr] = max(last_month.get(yr, 0), int(date_str[5:7]))
+    # A partial year (no December print) is not a full-year observation —
+    # including it booked Jan-Jun 2026 as a full YoY (sweep 2026-08-09).
+    years = sorted(y for y in by_year if last_month[y] == 12)
     return [(years[i], (by_year[years[i]] / by_year[years[i - 1]]) - 1.0)
             for i in range(1, len(years))]
 
@@ -234,12 +238,15 @@ def judgment_exit_cap_spread() -> dict:
         "fit_date": FIT_DATE,
         "n_obs": None,
         "provenance": "JUDGMENT",
+        # FIX 3 (2026-08-06 red-team): p90 widened 0.013 -> 0.020 for honest
+        # exit-cap tails. Keep the fitter in sync with the live file or a
+        # re-run silently reverts the fix (sweep 2026-08-09).
         "p10": -0.0025,
         "p50": 0.0050,
-        "p90": 0.0130,
+        "p90": 0.0200,
         "tri_low": -0.0025,
         "tri_mode": 0.0050,
-        "tri_high": 0.0150,
+        "tri_high": 0.0200,
         "note": "judgment - calibration log has no cap data (LA non-disclosure).",
     }
 
@@ -290,6 +297,21 @@ def main():
     if args.dry_run:
         print("\n[dry-run] Not writing file.")
         return
+
+    # Preserve blocks the fitter does not produce (turnover_rate, capex_vintage
+    # were hand-added for MC FIX 1/2); a plain overwrite deleted them
+    # (sweep 2026-08-09).
+    if OUT_PATH.exists():
+        try:
+            with open(OUT_PATH) as f:
+                existing = json.load(f)
+            for key, val in existing.items():
+                if key not in params:
+                    params[key] = val
+                    print(f"  preserved hand-added block: {key}")
+        except Exception as e:
+            print(f"  WARNING: could not read existing file to preserve "
+                  f"hand-added blocks: {e}")
 
     with open(OUT_PATH, "w") as f:
         json.dump(params, f, indent=2)

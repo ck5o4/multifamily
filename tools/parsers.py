@@ -12,6 +12,7 @@ Design rules learned from real packages:
 import csv
 import re
 from pathlib import Path
+from statistics import median
 
 import openpyxl
 
@@ -108,10 +109,21 @@ def pdf_ocr_hint(path):
 # ---------------------------------------------------------------- unit types
 
 _BB_PATTERNS = [
-    re.compile(r"(\d)\s*[xX/]\s*(\d(?:\.5)?)"),
+    # lookarounds keep "3/2" from matching inside longer digit runs (dates,
+    # account numbers): 01/15/2026 must not read as 1BR/1BA
+    re.compile(r"(?<![\d/.])(\d)\s*[xX/]\s*(\d(?:\.5)?)(?![\d/])"),
     re.compile(r"(\d)\s*(?:br|bd|bed(?:room)?s?)\b\D{0,12}?(\d(?:\.5)?)\s*(?:ba|bath(?:room)?s?)", re.I),
     re.compile(r"(\d)\s*bed\D{0,12}?(\d(?:\.5)?)\s*bath", re.I),
 ]
+
+_DATE_RE = re.compile(r"^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}$")
+
+
+def _nondate_text(row):
+    """Row text for fallback bed/bath scans, with date-shaped cells removed -
+    whole-row joins let the 3/2 pattern land inside lease dates."""
+    return " ".join(t for t in (str(c).strip() for c in row)
+                    if t and not _DATE_RE.match(t))
 
 
 def parse_bed_bath(text):
@@ -176,11 +188,14 @@ def _find_header(rows):
 
 
 def _rent_records(rows):
-    """-> list of records from one sheet. Header-driven; falls back to line scan."""
+    """-> (records, fallback, notes) from one sheet. Header-driven; falls back
+    to line scan. A record's rent is None for vacant/zero-rent rows - the unit
+    still counts; parse_rent_roll imputes the rent from the type median."""
     hi, idx = _find_header(rows)
-    recs, fallback = [], False
+    recs, fallback, rnotes = [], False, []
 
     if hi is not None:
+        cnt_seq = []
         for row in rows[hi + 1:]:
             if not any(str(c).strip() for c in row):
                 continue
@@ -191,9 +206,6 @@ def _rent_records(rows):
                 j = idx.get(key)
                 return row[j] if j is not None and j < len(row) else None
 
-            rent = to_num(get("rent"))
-            if rent is None or not (RENT_MIN <= rent <= RENT_MAX):
-                continue
             label = str(get("type") or "").strip()
             if TOTAL_ROW_RE.match(label):
                 continue
@@ -203,33 +215,77 @@ def _rent_records(rows):
             if bb is None:
                 # Floorplan codes ("A1", "B2") carry no bed/bath. The real
                 # designation is usually in another column on the same row.
-                bb = parse_bed_bath(" ".join(str(c) for c in row))
+                bb = parse_bed_bath(_nondate_text(row))
             if bb is None and not has_letter(label):
                 continue  # total row or numeric junk
+            rent = to_num(get("rent"))
+            if rent is not None and RENT_MIN <= rent <= RENT_MAX:
+                pass
+            elif rent in (None, 0.0):
+                rent = None  # vacant/subsidy unit: keep it in the count
+            else:
+                continue  # nonzero but implausible - junk row
             sf = to_num(get("sf"))
             if sf is not None and not (SF_MIN <= sf <= SF_MAX):
                 sf = None
             cnt = to_num(get("count")) if "count" in idx else None
             if cnt is not None and not (0 < cnt <= COUNT_MAX):
                 cnt = None
+            if cnt is not None:
+                cnt_seq.append(cnt)
             recs.append({"label": label, "bb": bb, "sf": sf, "rent": rent, "count": cnt or 1.0})
+
+        # A "Units" column of unit NUMBERS is IDs, not counts: 30 rows numbered
+        # 1..30 must not become 465 units.
+        if len(cnt_seq) >= 5 and all(float(c).is_integer() for c in cnt_seq) \
+                and all(b > a for a, b in zip(cnt_seq, cnt_seq[1:])):
+            for r in recs:
+                r["count"] = 1.0
+            rnotes.append(f"count column runs {int(cnt_seq[0])}..{int(cnt_seq[-1])} strictly "
+                          "increasing - read as unit numbers, not counts; counted 1 unit per row.")
     else:
         fallback = True
+        cand = []
         for row in rows:
-            joined = " ".join(str(c) for c in row)
             if TOTAL_ROW_RE.match(str(row[0]) if row else ""):
                 continue
-            bb = parse_bed_bath(joined)
+            bb = parse_bed_bath(_nondate_text(row))
             if not bb:
                 continue
-            nums = [n for n in (to_num(c) for c in row) if n is not None]
-            rent = next((n for n in reversed(nums) if RENT_MIN <= n <= RENT_MAX), None)
-            if rent is None:
+            in_rng = [(j, n) for j, n in ((j, to_num(c)) for j, c in enumerate(row))
+                      if n is not None and RENT_MIN <= n <= RENT_MAX]
+            if not in_rng:
                 continue
-            sf = next((n for n in nums if SF_MIN <= n <= SF_MAX and n != rent), None)
-            recs.append({"label": joined[:40], "bb": bb, "sf": sf, "rent": rent, "count": 1.0})
+            cand.append((row, bb, in_rng))
 
-    return recs, fallback
+        # Rent = the column index most rows agree on. "Last in-range number"
+        # let a trailing deposit column win ('2BR/1BA, 900, 850, 500' -> 500).
+        votes = {}
+        for _, _, in_rng in cand:
+            for j, _ in in_rng:
+                votes[j] = votes.get(j, 0) + 1
+        rent_col = None
+        if votes:
+            top = max(votes.values())
+            tops = [j for j, v in votes.items() if v == top]
+            if len(tops) == 1 and top >= max(2, len(cand) // 2):
+                rent_col = tops[0]
+
+        all_rents = []
+        for row, bb, in_rng in cand:
+            rent = dict(in_rng).get(rent_col, in_rng[-1][1]) if rent_col is not None else in_rng[-1][1]
+            all_rents += [n for _, n in in_rng]
+            nums = [n for n in (to_num(c) for c in row) if n is not None]
+            sf = next((n for n in nums if SF_MIN <= n <= SF_MAX and n != rent), None)
+            recs.append({"label": " ".join(str(c) for c in row)[:40], "bb": bb,
+                         "sf": sf, "rent": rent, "count": 1.0})
+        if recs and rent_col is None:
+            rnotes.append("line scan: no rent-column consensus - took last in-range value per "
+                          f"row. In-range values min ${min(all_rents):,.0f} / median "
+                          f"${median(all_rents):,.0f} / max ${max(all_rents):,.0f} - verify "
+                          "the rent is not a deposit or SF column.")
+
+    return recs, fallback, rnotes
 
 
 RENT_SHEET_HINTS = ("rent roll", "rentroll", "rent_roll", "unit mix", "unitmix",
@@ -268,20 +324,36 @@ def parse_rent_roll(path, sheet=None, mode="rent"):
 
     scored = []
     for name, rows in sheets:
-        recs, fb = _rent_records(rows)
-        scored.append((_score_sheet(name, recs, mode), name, recs, fb))
+        recs, fb, rn = _rent_records(rows)
+        scored.append((_score_sheet(name, recs, mode), name, recs, fb, rn))
     scored.sort(key=lambda t: -t[0])
-    best_score, best_name, best_recs, best_fb = scored[0]
+    best_score, best_name, best_recs, best_fb, best_rn = scored[0]
 
     if len(sheets) > 1:
-        cands = [f"{n} ({sum(1 for r in rc if r['bb'])})" for s, n, rc, _ in scored[:4] if s > -1]
+        cands = [f"{n} ({sum(1 for r in rc if r['bb'])})" for s, n, rc, _, _ in scored[:4] if s > -1]
         notes.append(f"selected sheet {best_name!r} out of {len(sheets)}. "
                      f"Candidates (bed/bath rows): {', '.join(cands) or 'none'}. "
                      f"Override with --sheet if wrong.")
     if best_fb:
         notes.append("No header row detected - fell back to line scanning (verify output).")
+    notes += best_rn
     if not best_recs:
         return [], notes + ["No rent rows parsed."] + pdf_ocr_hint(path)
+
+    def _key(rec):
+        return canonical_type(rec["bb"][0], rec["bb"][1]) if rec["bb"] else (rec["label"] or "UNKNOWN")
+
+    vacant = [r for r in best_recs if r["rent"] is None]
+    if vacant:
+        meds = {}
+        for r in best_recs:
+            if r["rent"]:
+                meds.setdefault(_key(r), []).append(r["rent"])
+        for r in vacant:
+            k = _key(r)
+            r["rent"] = median(meds[k]) if k in meds else 0.0
+        notes.append(f"{int(round(sum(r['count'] for r in vacant)))} vacant/zero-rent rows: "
+                     "counted as units, rent imputed from type median")
 
     buckets, unresolved = {}, 0
     for rec in best_recs:
@@ -323,7 +395,7 @@ def parse_comps(path, sheet=None):
 
 _T12_MAP = [
     ("payroll", ("payroll", "salaries", "salary", "wages", "on-site", "onsite", "personnel", "employee")),
-    ("insurance", ("insurance",)),
+    ("insurance", ("insurance", "hazard")),
     ("taxes_annual", ("property tax", "real estate tax", "ad valorem", "taxes")),
     ("mgmt_pct", ("management fee", "mgmt fee", "property management")),
     ("marketing", ("marketing", "advertis", "promotion", "leasing", "locator")),
@@ -344,7 +416,13 @@ _SKIP = ("total", "net operating", "noi", "gross", "subtotal", "effective", "inc
 # the first subtotal (insurance/taxes/R&M lost on grouped statements).
 _STOP_RE = re.compile(r"^\s*(total\s+(operating|expenses?)\b|net operating|noi\b)", re.I)
 
-_TOTAL_HDR = ("total", "annual", "ttm", "t-12", "t12", "trailing", "year", "12 month", "twelve")
+# "'Flood Ins' / 'Hazard & Liability Ins'": bare 'ins'/'ins.' at word end is
+# insurance shorthand; 'painting'/'maintenance' must not match.
+_INS_ABBR_RE = re.compile(r"\bins\.?(?:\s|$)")
+
+# 'year' deliberately absent: it selected 'Year Built'/'Year Model' columns and
+# read the year (2018) as the annual dollar figure.
+_TOTAL_HDR = ("total", "annual", "ttm", "t-12", "t12", "trailing", "12 month", "twelve")
 _NOT_TOTAL_HDR = ("per unit", "/unit", "%", "month prior", "start month", "budget", "variance", "psf", "/sf")
 
 
@@ -369,9 +447,12 @@ def _find_total_col(rows):
 
 
 def _t12_from_rows(rows):
+    """-> (lines, matched_row_count, notes, has_total_col)"""
     hi, tcol = _find_total_col(rows)
-    out, basis_note = {}, None
+    out, lnotes = {}, []
     matched = 0
+    seen = {}      # normalized label -> last annual (duplicate-label guard)
+    unmapped = {}  # label -> dollar amount that matched no category
 
     for ri, row in enumerate(rows):
         if hi is not None and ri <= hi:
@@ -393,7 +474,13 @@ def _t12_from_rows(rows):
             if any(kw in low for kw in kws):
                 key = k
                 break
+        if key is None and _INS_ABBR_RE.search(low):
+            key = "insurance"
         if key is None:
+            if has_letter(label) and label not in unmapped:
+                amts = [abs(n) for n in (to_num(c) for c in cells[1:]) if n is not None]
+                if amts and max(amts) >= 100:
+                    unmapped[label] = max(amts)
             continue
 
         annual, basis = None, None
@@ -410,16 +497,28 @@ def _t12_from_rows(rows):
             else:
                 big = [n for n in nums if n >= 100]
                 annual = (big or nums)[-1]
-                basis = "last plausible value (no total header found)"
-        basis_note = basis_note or basis
+                basis = ("last plausible value (totals column empty on this line)"
+                         if tcol is not None else "last plausible value (no total header found)")
 
         matched += 1
-        if key in out:
+        prev = seen.get(low)
+        if prev is not None:
+            # Same label again = a later block of the sheet (budget vs actual);
+            # the later block is the more current figure. Never sum duplicates.
+            out[key]["annual"] += annual - prev
+            lnotes.append(f"duplicate {label!r} lines: kept last (${annual:,.0f}), "
+                          f"ignored ${prev:,.0f}")
+        elif key in out:
             out[key]["annual"] += annual
             out[key]["label"] += f" + {label}"
         else:
             out[key] = {"annual": annual, "label": label, "basis": basis}
-    return out, matched
+        seen[low] = annual
+
+    if unmapped:
+        lnotes.append("lines with dollar amounts that matched no expense category (NOT captured): "
+                      + "; ".join(f"{l} (${a:,.0f})" for l, a in unmapped.items()))
+    return out, matched, lnotes, tcol is not None
 
 
 def parse_t12(path, units=None, sheet=None):
@@ -431,14 +530,24 @@ def parse_t12(path, units=None, sheet=None):
         if not sheets:
             return {}, [f"sheet {sheet!r} not found in {Path(path).name}"]
 
-    best_name, best_out, best_n = None, {}, -1
+    cands = []
     for name, rows in sheets:
-        out, n = _t12_from_rows(rows)
-        if n > best_n:
-            best_name, best_out, best_n = name, out, n
+        out, n, lnotes, has_tcol = _t12_from_rows(rows)
+        cands.append({"name": name, "out": out, "n": n, "lnotes": lnotes, "tcol": has_tcol})
+    # A sheet with a detected annual-totals column is a statement; one without
+    # is usually a ledger. Row count alone let a junk ledger beat the real T-12.
+    cands.sort(key=lambda c: (-int(c["tcol"]), -c["n"]))
+    best = cands[0]
+    best_name, best_out, best_n = best["name"], best["out"], best["n"]
+    notes += best["lnotes"]
 
     if len(sheets) > 1:
-        notes.append(f"selected sheet {best_name!r} out of {len(sheets)} ({best_n} expense lines matched).")
+        losers = ", ".join(f"{c['name']!r} ({c['n']} lines, "
+                           f"{'totals col' if c['tcol'] else 'no totals col'})"
+                           for c in cands[1:])
+        notes.append(f"selected sheet {best_name!r} out of {len(sheets)} ({best_n} expense lines "
+                     f"matched, {'totals column detected' if best['tcol'] else 'no totals column'}). "
+                     f"Passed over: {losers}.")
     if not best_out:
         notes.append("No T-12 expense lines matched. Check the file layout.")
         notes += pdf_ocr_hint(path)

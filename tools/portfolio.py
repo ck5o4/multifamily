@@ -12,6 +12,7 @@ Stages: watching -> underwriting -> offered -> under_contract -> owned -> sold
 Usage:
   portfolio.py add "oak-street" --stage underwriting
   portfolio.py stage "oak-street" offered --note "offered 725k"
+  portfolio.py note "oak-street" "seller countered 740k"   # note, stage unchanged
   portfolio.py board                          # the pipeline at a glance
   portfolio.py plan "oak-street"              # pull yr-1 targets from its workbook
   portfolio.py log "oak-street" june.csv      # ingest a bank/PM CSV export
@@ -105,10 +106,34 @@ def cmd_stage(name, stage, note):
     deals = _load()
     if name not in deals:
         print(f"unknown deal {name}"); return
+    old = deals[name]["stage"]
+    # Warn (never block) on backward transitions - reviving dead/sold deals or
+    # demoting is legal but usually a typo or a note masquerading as a stage.
+    order = [s for s in STAGES if s != "dead"]
+    backward = ((old == "dead" and stage != "dead")
+                or (old in order and stage in order
+                    and order.index(stage) < order.index(old)))
+    if backward:
+        print(f"WARNING: backward transition {old} -> {stage}. Documented order: "
+              "watching < underwriting < offered < under_contract < owned < sold "
+              "(dead reachable from any). Proceeding anyway; to attach a note "
+              f"without changing stage use: portfolio.py note {name} \"...\"")
     deals[name]["stage"] = stage
     deals[name]["history"].append({"date": _today(), "stage": stage, "note": note or ""})
     _save(deals)
     print(f"{name} -> {stage}")
+
+
+def cmd_note(name, text):
+    """Append a dated note to history WITHOUT changing the stage - replaces the
+    old pattern of re-asserting the current stage just to attach a note."""
+    deals = _load()
+    if name not in deals:
+        print(f"unknown deal {name}"); return
+    stage = deals[name]["stage"]
+    deals[name]["history"].append({"date": _today(), "stage": stage, "note": text})
+    _save(deals)
+    print(f"{name} [{stage}] note added: {text[:70]}")
 
 
 def cmd_board():
@@ -174,6 +199,10 @@ def cmd_log(name, csv_path):
         print(f"unknown deal {name}"); return
     import csv as csvmod
     path = Path(csv_path)
+    if not path.exists():
+        print(f"ERROR: no file at {path}. log imports a bank/PM CSV; "
+              f"to attach a note use: portfolio.py note {name} \"...\"")
+        return
     added, skipped = 0, 0
     with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
         rows = list(csvmod.reader(fh))
@@ -181,15 +210,22 @@ def cmd_log(name, csv_path):
     # bank export ending in a running-balance column booked the BALANCE as the
     # transaction amount — a $1,200 rent logged as +$45,200 of income).
     amount_idx = None
+    debit_idx = credit_idx = None
     if rows:
         hdr = [c.strip().lower() for c in rows[0]]
         if any(h in hdr for h in ("amount", "debit", "credit", "balance",
                                   "description", "date")):
-            for cand in ("amount", "debit", "credit"):
-                if cand in hdr:
-                    amount_idx = hdr.index(cand)
-                    break
-            if "balance" in hdr and amount_idx is None:
+            if "debit" in hdr and "credit" in hdr:
+                # Two-column export: amount = credit - debit per row (credits
+                # positive income, debits negative) - never lock onto one column.
+                debit_idx = hdr.index("debit")
+                credit_idx = hdr.index("credit")
+            else:
+                for cand in ("amount", "debit", "credit"):
+                    if cand in hdr:
+                        amount_idx = hdr.index(cand)
+                        break
+            if "balance" in hdr and amount_idx is None and debit_idx is None:
                 print("ERROR: CSV has a 'balance' column but no amount/debit/"
                       "credit column — refusing to guess which number is the "
                       "transaction amount. Re-export with an amount column.")
@@ -201,7 +237,11 @@ def cmd_log(name, csv_path):
             cells = [c for c in raw if c]
             if len(cells) < 2:
                 continue
-            if amount_idx is not None:
+            if debit_idx is not None:
+                dr = to_num(raw[debit_idx]) if len(raw) > debit_idx else None
+                cr = to_num(raw[credit_idx]) if len(raw) > credit_idx else None
+                amount = None if (dr is None and cr is None) else (cr or 0) - (dr or 0)
+            elif amount_idx is not None:
                 amount = to_num(raw[amount_idx]) if len(raw) > amount_idx else None
             else:
                 amount = None
@@ -308,6 +348,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("add"); p.add_argument("name"); p.add_argument("--stage", default="watching", choices=STAGES); p.add_argument("--note")
     p = sub.add_parser("stage"); p.add_argument("name"); p.add_argument("new_stage", choices=STAGES); p.add_argument("--note")
+    p = sub.add_parser("note"); p.add_argument("name"); p.add_argument("text")
     sub.add_parser("board")
     p = sub.add_parser("plan"); p.add_argument("name")
     p = sub.add_parser("log"); p.add_argument("name"); p.add_argument("csv")
@@ -316,6 +357,7 @@ def main():
     a = ap.parse_args()
     if a.cmd == "add": cmd_add(a.name, a.stage, a.note)
     elif a.cmd == "stage": cmd_stage(a.name, a.new_stage, a.note)
+    elif a.cmd == "note": cmd_note(a.name, a.text)
     elif a.cmd == "board": cmd_board()
     elif a.cmd == "plan": cmd_plan(a.name)
     elif a.cmd == "log": cmd_log(a.name, a.csv)

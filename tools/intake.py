@@ -194,11 +194,37 @@ def main():
                 "t12: verify trash/waste landed in utilities, not contract services - keyword overlap.")
 
     if args.model == "dev":
-        bad = [g["type"] for g in (comp_groups or groups) if g["type"] not in DEV_LOOKUP_TYPES]
+        # Union: a unit-mix type absent from comps still hits the VLOOKUP and
+        # silently reads 0 rent, so both lists must be validated.
+        bad = [g["type"] for g in comp_groups + groups if g["type"] not in DEV_LOOKUP_TYPES]
         if bad:
             all_notes.append(
                 "dev model VLOOKUP only resolves " + ", ".join(DEV_LOOKUP_TYPES)
                 + f"; these will return 0 rent: {sorted(set(bad))}")
+
+    # Overrides are parsed and validated before the dry-run exit so a bad
+    # --set fails loudly even in preview mode.
+    try:
+        overrides = dict(defaults.parse_override(s) for s in args.sets)
+    except ValueError as e:
+        print(f"  BAD --set: {e}")
+        sys.exit(2)
+    # Unknown keys must fail loudly in BOTH defaults and --no-defaults mode -
+    # a silently dropped override looks identical to an applied one.
+    known = set(defaults.TEMPLATES[args.model]) | set(spec["scalars"])
+    unknown = sorted(k for k in overrides if k not in known)
+    if unknown:
+        print(f"  BAD --set: unknown key(s): {', '.join(unknown)}. "
+              f"Valid keys are the template defaults and model inputs.")
+        sys.exit(2)
+    if args.refi_year is not None:
+        overrides["refi_year"] = args.refi_year
+    for flag, key in (("reno_units", "reno_units"), ("reno_cost", "reno_cost_per_unit"),
+                      ("reno_premium", "reno_premium_month"), ("reno_per_year", "reno_units_per_year"),
+                      ("reno_downtime", "reno_downtime_months"), ("reno_start_year", "reno_start_year")):
+        val = getattr(args, flag)
+        if val is not None:
+            overrides[key] = val
 
     if not args.apply:
         print("\n  DRY RUN - nothing written. Re-run with --apply --recalc.")
@@ -257,20 +283,6 @@ def main():
                     print(f"    seller's current bill ${sellers:,.0f} -> ${est:,.0f} ({est - sellers:+,.0f}/yr)")
                 print("    Parish-wide rate; districts inside a parish vary. Confirm with the "
                       "assessor before offering. --keep-sellers-tax to disable.")
-
-    try:
-        overrides = dict(defaults.parse_override(s) for s in args.sets)
-    except ValueError as e:
-        print(f"  BAD --set: {e}")
-        sys.exit(2)
-    if args.refi_year is not None:
-        overrides["refi_year"] = args.refi_year
-    for flag, key in (("reno_units", "reno_units"), ("reno_cost", "reno_cost_per_unit"),
-                      ("reno_premium", "reno_premium_month"), ("reno_per_year", "reno_units_per_year"),
-                      ("reno_downtime", "reno_downtime_months"), ("reno_start_year", "reno_start_year")):
-        val = getattr(args, flag)
-        if val is not None:
-            overrides[key] = val
 
     if not args.no_defaults:
         prov = defaults.resolve(args.model, units, parsed_keys, overrides)
@@ -332,7 +344,12 @@ def main():
             w2 = ModelWriter(dest, spec)
             w2.set(spec["scalars"]["exit_cap"], solved)
             w2.save()
-            rc.recalc(dest)
+            try:
+                rc.recalc(dest)
+            except rc.RecalcUnavailable as e:
+                print(f"\n  RECALC FAILED (exit-cap second pass - workbook values are stale)\n{e}")
+                _print_notes(all_notes)
+                sys.exit(2)
             print(f"\n  EXIT CAP SOLVED: going-in {going_in*100:.2f}% + 50bps -> {solved*100:.2f}% "
                   f"(override with --set exit_cap=6.5%)")
 
@@ -347,16 +364,18 @@ def main():
         strategies.compare(dest, spec)
 
     if args.solve_price and args.model == "acq" and args.price:
-        # exit_cap goes into fixed ONLY if the user explicitly --set it. When it
-        # was derived (going-in-at-ASK + 50bps), freezing it would let the solver
-        # sell every trial price into the ask's cap - unearned compression that
-        # inflated solve IRRs by 2-3pts (bug found by pymodel cross-check
-        # 2026-08-02). solve.py re-derives per-iteration when it is not fixed.
+        # The solver ALWAYS re-derives exit_cap per trial price (going-in +
+        # 50bps): freezing the ask's cap would let every trial price sell into
+        # unearned compression, inflating solve IRRs by 2-3pts (bug found by
+        # pymodel cross-check 2026-08-02). The house rule is never to credit a
+        # richer exit than entry, so an explicit --set exit_cap only applies to
+        # the base workbook, never the solve.
+        if "exit_cap" in overrides:
+            print("\n  WARNING: exit_cap override ignored by solver: exit cap is always "
+                  "re-derived as going-in+50bps per trial price")
         fixed_keys = ["reno_units", "reno_cost_per_unit", "reno_premium_month",
                       "reno_units_per_year", "reno_downtime_months", "reno_start_year",
                       "refi_year", "mgmt_pct", "insurance"]
-        if "exit_cap" in overrides:
-            fixed_keys.append("exit_cap")
         fixed = {k: scal[k] for k in fixed_keys if k in scal and scal[k] is not None}
         work = dest.parent / f"__solve_{args.deal}.xlsx"
         print("\n  PRICE SOLVER (what you would have to pay)")
