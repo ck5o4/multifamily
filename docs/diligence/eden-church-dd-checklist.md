@@ -87,6 +87,21 @@ bindable insurance quote + parceltax reconciliation + seller T-12/rent roll befo
 - [ ] Flood: FIRM panel per-home (zone X confirmed at address level; confirm no
       pad sits in a mapped A sliver), 2016 Livingston flood history question to
       neighbors/seller in writing.
+- [ ] **2016 flood / fleet-replacement inference (added 2026-08-09):** 15 of 18
+      homes are 2017-19 builds — the timing lands right after the Aug 2016 flood,
+      which inundated large areas of Denham Springs OUTSIDE mapped flood zones.
+      Ask directly: did this park take water in 2016? Were the homes replaced
+      because of it? If yes: what pad/elevation work was done, and has any
+      insurer been told? (A yes doesn't kill the deal — Zone X + post-flood
+      rebuilt fleet may even be the safer configuration — but it must be
+      disclosed to the insurer BEFORE binding, not discovered by them after
+      a claim.)
+- [ ] **Sewer-catastrophe stress (run 2026-08-09, engine-verified):** at the
+      $1.25M basis a one-time forced pond replacement/tie-in still clears:
+      $75K hit in yr2 → 17.4% IRR, $150K → 13.1%, $250K → 7.7%. The deal
+      survives the catastrophic sewer scenario at the negotiated basis (it
+      would NOT at ask). Get the plumber's tie-in rough number in Gate 2 to
+      know which of these three worlds we're in.
 - [ ] Property tax: parceltax reconciliation done (post-sale ~$12.5K at $1.25M);
       confirm assessor's treatment of park-owned homes (real vs personal property
       rolls) — affects the millage math.
