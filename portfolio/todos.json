@@ -90,10 +90,10 @@
     },
     {
       "id": "nola-listing-pull",
-      "text": "Pull price + unit count for 4 in-box listings: Gentilly Ridge, Gretna 12-unit, S. Genois, W Congress Lafayette",
+      "text": "Pull the asking price on 929 Monterey Ct, Gretna (12 units) - the only live listing left in the backlog",
       "owner": "anthony",
       "status": "open",
-      "why": "NEW 2026-08-17. Twelve alerts piled up 08-05 to 08-16 and the cloud sweeps listed addresses without ever assigning verdicts. Geography triage is now done (deal-intake/_pipeline/triage-2026-08-17.md): 7 killed on geography, 4 are genuinely in the buy box, 2 flagged. The 4 cannot be screened because Crexi alert emails carry only the address - no price, no unit count. Priority order: 6000 Chef Menteur Hwy 'Gentilly Ridge' (named property, so probably a real complex), then 929 Monterey Ct Gretna ('12 Unit Portfolio', right scale), then S. Genois, then Lafayette.",
+      "why": "NEW 2026-08-17. Twelve alerts piled up 08-05 to 08-16 while nobody read the digests, and the sweeps listed addresses without ever assigning verdicts. Full triage now in deal-intake/_pipeline/triage-2026-08-17.md. Resolved without Crexi by reading unit counts out of the alert email bodies: 7 dead on geography, S. Genois dead at 2 units, Gentilly Ridge dead at 92 units (~$2M+ equity vs ~$300K available). Gretna is the ONE survivor - 12 units in Jefferson, same profile as Baker, needs only a price. Lafayette W Congress needs price AND unit count. Apply the NOLA overlay when screening Gretna: Jefferson millage 118.40, insurance $3,000/unit for wind, flood.py mandatory.",
       "added": "2026-08-17"
     },
     {

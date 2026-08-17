@@ -20,7 +20,9 @@ import pymodel
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "portfolio" / "board.html"
-ARTIFACT_URL = "https://claude.ai/code/artifact/7ff847d5-56e2-425a-be47-da22618fe1b3"
+# Re-published 2026-08-17: the old 7ff847d5 artifact is unreachable (404s, and
+# `Artifact list` returns nothing for this account), so the standing URL moved.
+ARTIFACT_URL = "https://claude.ai/code/artifact/2b362f80-0ceb-4aaf-8d5b-41f212b377d0"
 
 # Curated copy per deal — words only; every number is computed fresh below.
 OVERRIDES = {
