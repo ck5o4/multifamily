@@ -34,10 +34,10 @@
     },
     {
       "id": "github-write",
-      "text": "Grant the Claude GitHub App WRITE (Contents) access to ck5o4/multifamily",
+      "text": "Claude GitHub App installed on ck5o4/multifamily with write access - cloud push unblocked",
       "owner": "anthony",
-      "status": "open",
-      "why": "HIGHEST-VALUE FIX for the automation. Sweep 2026-08-16 narrowed it to certainty: THREE write paths all 403 - git push, push with the session GITHUB_TOKEN in the URL, and GitHub MCP push_files ('Resource not accessible by integration'). Reads all succeed and the egress proxy logged no relay failures, so this is a missing Contents:write scope on the GitHub App installation, NOT the network and NOT a Claude Code permission rule. A Bash(git push:*) allow rule will NOT fix it - ruled out 2026-08-16. Consequence: every cloud sweep since 08-10 committed locally then died with its container, so 8 findings survived only inside emailed recovery patches. Recovered into this file by the local session 2026-08-17.",
+      "status": "done",
+      "why": "FIXED 2026-08-17 by Anthony. Root cause was subtler than 'a missing scope': the Claude app was AUTHORIZED on ck5o4 but INSTALLED only on the flux-brain-hq org, never on the personal account that owns multifamily. Authorization is what let cloud sessions read; installation is what grants repo Contents:write, so every push 403'd while every read succeeded - exactly the observed asymmetry. Installed via github.com/apps/claude/installations/new -> ck5o4 -> Only select repositories -> multifamily. Verified at installation 154488689: 'Read and write access to ... code' and 'Selected 1 repository: ck5o4/multifamily'. Scoped to that one repo deliberately. NOTE: the post-install redirect lands on claude.ai/admin-settings/... which shows 'You don't have access to organization settings' on a personal plan - that dead end is cosmetic, not a failure. Confirm on the next scheduled sweep that it pushes instead of emailing a recovery patch.",
       "added": "2026-08-10"
     },
     {
