@@ -5,15 +5,23 @@
       "text": "Send the Vercher reply (Eden tour + carry question + Hwy 42 decline)",
       "owner": "anthony",
       "status": "open",
-      "why": "Critical path. Draft ready in Gmail. 6 days stale.",
+      "why": "Critical path, Eden is deal #1. Vercher replied 2026-08-03 with financials and the oxidation-pond answer; re-verified 2026-08-17: nothing sent to yourccim@kw.com since 2026-08-02, so 14 days unanswered. Draft r-4302639781657702250 unsent since 2026-08-09 and now TIME-STALE: it says 'walk the park this week or next', written 08-09, so it now reads as the week of 08-17 at best. Draft defect: 'Can we walk the park this week or next' has no question mark and the Hwy 42 sentence trails off. REWRITTEN 2026-08-17 with concrete dates - send as-is.",
       "added": "2026-08-08"
+    },
+    {
+      "id": "rider-reply",
+      "text": "Reply to Justen Rider on Baker Trails - close the loop on the OM",
+      "owner": "anthony",
+      "status": "open",
+      "why": "NEW 2026-08-17. Rider replied 2026-08-13 with the OM and was straight with you: no T-12 exists, no capex receipts exist, laundry income is an undocumented seller estimate. He asked directly whether you can underwrite on what is available and has heard nothing for 4 days. He has been responsive and honest twice; leaving him silent costs a source. Draft written 2026-08-17: prices the missing documentation rather than walking, and re-anchors at the solved number.",
+      "added": "2026-08-17"
     },
     {
       "id": "apartment-guard",
       "text": "Send the Apartment Guard insurance follow-up (Eden habitational quote)",
       "owner": "anthony",
       "status": "open",
-      "why": "The quote is the go/no-go gate on Eden.",
+      "why": "The bindable quote at or under ~$1,600/unit is the go/no-go gate on Eden. Original sent 2026-08-05, re-verified 2026-08-17: no reply in 12 days and no follow-up in Sent. The 2026-08-09 follow-up draft r3271415731993785159 has an EMPTY body and cannot be sent. REWRITTEN 2026-08-17. If silent by Wed EOD, call - and open a second carrier in parallel, one quote is single-threaded on the deal's main gate.",
       "added": "2026-08-08"
     },
     {
@@ -21,32 +29,80 @@
       "text": "Send the Hernandez financials request (Treme rent roll, T-12, unit mix)",
       "owner": "anthony",
       "status": "open",
-      "why": "Everything on Treme is estimated until these arrive.",
+      "why": "Everything on Treme is estimated until these arrive. Re-verified 2026-08-17: no email to hernandezteamnola@gmail.com exists in Sent at all. Draft r6910164296570484338 unsent since 2026-08-09 with two defects: a sentence ends at 'I have', and 'he listing' should read 'the listing'. Listing was 8 DOM on 2026-08-08, now ~24 DOM. REWRITTEN 2026-08-17.",
       "added": "2026-08-09"
     },
     {
-      "id": "reconnect-gmail",
-      "text": "Reconnect the Gmail connector at claude.ai/customize/connectors",
+      "id": "github-write",
+      "text": "Grant the Claude GitHub App WRITE (Contents) access to ck5o4/multifamily",
       "owner": "anthony",
-      "status": "done",
-      "why": "The email-sweep routine was deleted and cannot be recreated without it. No automated inbox checks until this is done.",
-      "added": "2026-08-09"
+      "status": "open",
+      "why": "HIGHEST-VALUE FIX for the automation. Sweep 2026-08-16 narrowed it to certainty: THREE write paths all 403 - git push, push with the session GITHUB_TOKEN in the URL, and GitHub MCP push_files ('Resource not accessible by integration'). Reads all succeed and the egress proxy logged no relay failures, so this is a missing Contents:write scope on the GitHub App installation, NOT the network and NOT a Claude Code permission rule. A Bash(git push:*) allow rule will NOT fix it - ruled out 2026-08-16. Consequence: every cloud sweep since 08-10 committed locally then died with its container, so 8 findings survived only inside emailed recovery patches. Recovered into this file by the local session 2026-08-17.",
+      "added": "2026-08-10"
     },
     {
-      "id": "git-push-rule",
-      "text": "Type '! git push origin main' or add a Bash(git push:*) allow rule",
+      "id": "baker-om",
+      "text": "Save Baker_Trails_OM_June.pdf into deal-intake/baker-trails/ (manual - both automated paths are blocked)",
       "owner": "anthony",
-      "status": "done",
-      "why": "Pushed 2026-08-09. For permanent hands-off pushes, add a Bash(git push:*) allow rule in settings.",
-      "added": "2026-08-09"
+      "status": "open",
+      "why": "Rider attached it 2026-08-13; re-verified 2026-08-17 that deal-intake/baker-trails/ still holds only IC_MEMO_2026-08-02.md, baker-trails_acq.xlsx and rentroll_baker_trails_ESTIMATED.csv. TWO blockers confirmed 2026-08-17, not one: (1) the Gmail connector exposes no attachment-download tool, and (2) the browser route also fails - Chrome has five Google accounts signed in (amekdessie, Optuno, Fingerprint Marketing, Influenceish, Verum Digital) and ridgebackpeak@gmail.com is NOT among them, so Gmail in-browser cannot reach the message. Fix either by signing into ridgebackpeak in Chrome or by saving the PDF by hand. It carries the first real rent data on this deal - every prior Baker number came from the estimated rent roll.",
+      "added": "2026-08-13"
     },
     {
-      "id": "recreate-sweep",
-      "text": "Recreate the Deal Flow email sweep routine (after Gmail reconnects)",
-      "owner": "claude",
-      "status": "done",
-      "why": "Blocked on reconnect-gmail. Any session can do it once the connector exists.",
-      "added": "2026-08-09"
+      "id": "crexi-alert-baker",
+      "text": "Re-arm the Crexi price alert on Baker Trails at $530K (currently $500K)",
+      "owner": "anthony",
+      "status": "open",
+      "why": "The armed alert sits BELOW the price that already qualifies: 13 pct clears at $528K, 16 pct at $490K, equity $146,520. A cut to $520K would be pursue-worthy and the $500K alert would never fire. Solved 2026-08-10 with location='baker', reproduced 08-11 and 08-12. The older $476K figure came from a solve with location omitted, which freezes property taxes; tools/solve.py warns about that exact 2026-08-02/03 omission.",
+      "added": "2026-08-10"
+    },
+    {
+      "id": "openpyxl-pin",
+      "text": "Pin openpyxl in the environment setup for scheduled cloud runs",
+      "owner": "anthony",
+      "status": "open",
+      "why": "openpyxl is absent in every fresh cloud container. Without it tools/board.py replaces BOTH live deal cards (Eden, Treme) with 'could not compute' placeholders and the board drops from ~17KB to ~10.8KB; it does print ERRORS, so it is not silent. requirements.txt was written into a container working tree 2026-08-15 but could not reach the repo because of the push 403, so it recurs every run. CREATED FOR REAL in the repo by the local session 2026-08-17 - this closes once the cloud setup step installs from it. Local machine is unaffected (openpyxl 3.1.5 present).",
+      "added": "2026-08-11"
+    },
+    {
+      "id": "network-policy",
+      "text": "Allow fred.stlouisfed.org and the comp websites in the CLOUD environment network policy",
+      "owner": "anthony",
+      "status": "open",
+      "why": "CLOUD-ONLY - scoped correctly 2026-08-17. In cloud containers the egress proxy returns 403 CONNECT for fred.stlouisfed.org (killing tools/rates.py with 'curl exit 56') and for parcatdenhamsprings.com and springtreedenham.com (killing the marketwatch snapshot). Both ran CLEAN from the local machine on 2026-08-17 - rates: WSJ Prime 6.75 pct, 10yr 4.68 pct, SOFR 3.62 pct, no drift vs defaults.py; marketwatch: snapshot 2026-08-17 saved, all four properties OK. So the scan is not broken, it is only broken unattended. Until the policy is fixed, rates and marketwatch must be run locally.",
+      "added": "2026-08-11"
+    },
+    {
+      "id": "routine-path-fix",
+      "text": "Fix the daily-scan routine prompt: it checks market-data/rentwatch/, the real dir is market-data/snapshots/",
+      "owner": "anthony",
+      "status": "open",
+      "why": "The step-3 staleness check points at a path that does not exist, so the weekly marketwatch snapshot would never fire from the routine even with the network fixed. Needs a trigger-prompt edit; an unattended run should not rewrite its own schedule. Snapshot cadence has still never run itself - the 2026-08-17 snapshot was taken by hand, as were 08-02 and 08-08.",
+      "added": "2026-08-11"
+    },
+    {
+      "id": "distribution-drafts",
+      "text": "Send the three stale distribution-list drafts: Landreneau, Beau Box, Stirling",
+      "owner": "anthony",
+      "status": "open",
+      "why": "All drafted 2026-08-09, unsent 8 days, re-verified against Sent 2026-08-17. Landreneau (klandreneau@rampartcre.com) ended mid-sentence at 'Is there some' - REWRITTEN 2026-08-17, no reply in 15 days. Beau Box (bgarrett@beaubox.com cc bbox@beaubox.com) was already clean and is ready as-is; info@beaubox.com bounced 2026-08-02, this is the correct direct address. Stirling (info@stirlingprop.com) follow-up body was EMPTY - REWRITTEN 2026-08-17, no reply in 15 days.",
+      "added": "2026-08-11"
+    },
+    {
+      "id": "nola-listing-pull",
+      "text": "Pull price + unit count for 4 in-box listings: Gentilly Ridge, Gretna 12-unit, S. Genois, W Congress Lafayette",
+      "owner": "anthony",
+      "status": "open",
+      "why": "NEW 2026-08-17. Twelve alerts piled up 08-05 to 08-16 and the cloud sweeps listed addresses without ever assigning verdicts. Geography triage is now done (deal-intake/_pipeline/triage-2026-08-17.md): 7 killed on geography, 4 are genuinely in the buy box, 2 flagged. The 4 cannot be screened because Crexi alert emails carry only the address - no price, no unit count. Priority order: 6000 Chef Menteur Hwy 'Gentilly Ridge' (named property, so probably a real complex), then 929 Monterey Ct Gretna ('12 Unit Portfolio', right scale), then S. Genois, then Lafayette.",
+      "added": "2026-08-17"
+    },
+    {
+      "id": "stbernard-box",
+      "text": "Decide once: is St. Bernard Parish (Chalmette) in the buy box or out?",
+      "owner": "anthony",
+      "status": "open",
+      "why": "NEW 2026-08-17. 1800 E St Bernard Hwy came through the Crexi alert. St. Bernard is not on the buy-box list, but it is NOLA metro and latax.py already carries its millage (141.10, heaviest in the metro) because the 08-09 sweep added it for the NOLA box. This is exactly the 08-08 failure pattern - a listing nearly auto-killed on a filter instead of on economics. One decision from you stops it recurring; until then the listing stays open rather than dead.",
+      "added": "2026-08-17"
     },
     {
       "id": "bank-calls",
@@ -57,11 +113,43 @@
       "added": "2026-08-04"
     },
     {
+      "id": "board-stats-css",
+      "text": "Board cards: the stats block renders unstyled (no .stats/.stat CSS)",
+      "owner": "claude",
+      "status": "done",
+      "why": "board.py emits a div.stats block per card but board_style.css defined .k/.v only under .pricebox, so NOI, cap rate, return, DSCR and the Monte Carlo odds rendered as plain stacked text instead of a grid. Numbers were always correct; only styling was missing. Prior sweeps left it deliberately because an unattended run should not redesign the board. FIXED 2026-08-17 in an attended local session: .stats grid + .stat k/v rules added to board_style.css, and board.py now HTML-escapes todo text so angle brackets can no longer break the list.",
+      "added": "2026-08-11"
+    },
+    {
+      "id": "reconnect-gmail",
+      "text": "Reconnect the Gmail connector at claude.ai/customize/connectors",
+      "owner": "anthony",
+      "status": "done",
+      "why": "Done. Connector is live and the twice-daily sweep has been drafting digests since 2026-08-09.",
+      "added": "2026-08-09"
+    },
+    {
+      "id": "git-push-rule",
+      "text": "Type '! git push origin main' or add a Bash(git push:*) allow rule",
+      "owner": "anthony",
+      "status": "done",
+      "why": "Superseded by github-write. Local pushes work; the 403 is a GitHub App scope problem in cloud containers, so this rule was never the fix.",
+      "added": "2026-08-09"
+    },
+    {
+      "id": "recreate-sweep",
+      "text": "Recreate the Deal Flow email sweep routine (after Gmail reconnects)",
+      "owner": "claude",
+      "status": "done",
+      "why": "Done - the sweep has been running twice daily and drafting digests since 2026-08-09.",
+      "added": "2026-08-09"
+    },
+    {
       "id": "rider-optional",
       "text": "Optional: send Rider/Baker financials request",
       "owner": "anthony",
-      "status": "optional",
-      "why": "Baker is shelved; sending keeps the negotiate-down door open.",
+      "status": "done",
+      "why": "SENT. Original 2026-08-05, follow-up 2026-08-09 to jus10_r@hotmail.com. Rider replied 2026-08-13 with Baker_Trails_OM_June.pdf. Superseded by rider-reply.",
       "added": "2026-08-09"
     }
   ]

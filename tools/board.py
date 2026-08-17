@@ -8,6 +8,7 @@ A scheduled cloud session republishes the output to the standing artifact URL.
 """
 
 import datetime
+import html
 import json
 import random
 import subprocess
@@ -67,9 +68,11 @@ DEAD_WHY = {
     "covington-2nd": "Ask $1.25M. <b>Only near $850–900K</b> — and it needs more cash than you have.",
     "weber-city-mhp": "Flood zone kills it at any realistic price.",
     "cannon-rd": "Needs 12× your capital. Not a maybe.",
-    "baker-trails": ("Ask $750K, works at <b>$476K</b> — too far apart today. "
-                     "<b>Comes back if:</b> price drops toward $500K (alert armed) or the "
-                     "broker produces roof/HVAC receipts and signals flexibility."),
+    "baker-trails": ("Ask $750K, works at <b>$528K</b> — too far apart today. "
+                     "<b>Broker answered 2026-08-13:</b> no T-12 exists, no capex receipts "
+                     "exist, laundry income is an undocumented seller estimate. The "
+                     "receipts trigger can never be met, so this comes back on price alone: "
+                     "re-arm the alert at $530K, not $500K."),
 }
 
 
@@ -182,8 +185,8 @@ def render_todos(todos):
             continue
         badge = {"anthony": "YOU", "claude": "CLAUDE"}.get(t["owner"], "")
         cls = "blocked" if t["status"] == "blocked" else ("optional" if t["status"] == "optional" else "")
-        rows.append(f'<li class="{cls}"><b>[{badge}]</b> {t["text"]} '
-                    f'<span class="who">— {t["why"]}</span></li>')
+        rows.append(f'<li class="{cls}"><b>[{badge}]</b> {html.escape(t["text"])} '
+                    f'<span class="who">— {html.escape(t["why"])}</span></li>')
     return "\n".join(rows)
 
 

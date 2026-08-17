@@ -150,6 +150,37 @@
   .pricebox .strategy .s { font-size: 0.98rem; color: var(--ink); max-width: 62ch; }
   .pricebox .strategy .s b { font-family: var(--mono); }
 
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .stats .stat {
+    background: var(--card);
+    padding: 0.6rem 0.85rem;
+    display: flex; flex-direction: column; gap: 0.15rem;
+    min-width: 0;
+  }
+  .stats .stat .k {
+    color: var(--ink-3); font-size: 0.72rem;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    font-family: var(--display);
+  }
+  .stats .stat .v {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-weight: 600; font-size: 1rem; color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+  .stats .stat .v small {
+    display: block; font-family: var(--display);
+    font-weight: 400; font-size: 0.72rem; color: var(--ink-3);
+    letter-spacing: 0;
+  }
+
   .gate {
     border-left: 3px solid var(--accent);
     background: var(--accent-tint);

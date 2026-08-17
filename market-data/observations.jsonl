@@ -12,3 +12,7 @@
 {"date": "2026-08-08", "slug": "spring-tree-denham-springs", "name": "Spring Tree Denham Springs", "ok": true, "units": [], "concessions": [], "n": 0, "min": null, "max": null}
 {"date": "2026-08-08", "slug": "creekside-crossing-walker", "name": "Creekside Crossing Walker", "ok": true, "units": [{"beds": 3, "price": 1000.0, "src": "heuristic", "name": null}, {"beds": 3, "price": 650.0, "src": "heuristic", "name": null}], "concessions": [], "n": 2, "min": 650.0, "max": 1000.0}
 {"date": "2026-08-08", "slug": "mansions-at-ivy-lake-gonzales", "name": "Mansions at Ivy Lake Gonzales", "ok": true, "units": [], "concessions": ["Special Offer", "month free"], "n": 0, "min": null, "max": null}
+{"date": "2026-08-17", "slug": "parc-at-denham-springs", "name": "Parc at Denham Springs", "ok": true, "units": [], "concessions": ["Limited Time", "MONTH FREE", "WAIVED APP"], "n": 0, "min": null, "max": null}
+{"date": "2026-08-17", "slug": "spring-tree-denham-springs", "name": "Spring Tree Denham Springs", "ok": true, "units": [], "concessions": [], "n": 0, "min": null, "max": null}
+{"date": "2026-08-17", "slug": "creekside-crossing-walker", "name": "Creekside Crossing Walker", "ok": true, "units": [], "concessions": ["$1000 off", "$1000.00 off"], "n": 0, "min": null, "max": null}
+{"date": "2026-08-17", "slug": "mansions-at-ivy-lake-gonzales", "name": "Mansions at Ivy Lake Gonzales", "ok": true, "units": [], "concessions": ["Special Offer", "month free"], "n": 0, "min": null, "max": null}

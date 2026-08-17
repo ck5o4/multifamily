@@ -17,6 +17,7 @@ CLI:
 """
 
 import argparse
+import json
 import math
 import random
 import sys
@@ -1604,7 +1605,7 @@ def _load_deal(deal_name: str) -> dict:
     def _v(x, default=0):
         return x if x is not None else default
 
-    return {
+    out = {
         "price": _v(price),
         "unit_mix": unit_mix,
         "closing_pct": _v(closing_pct, 0.02),
@@ -1653,6 +1654,26 @@ def _load_deal(deal_name: str) -> dict:
         "reno_downtime_months": _v(reno_downtime_months, 1),
         "reno_start_year": _v(reno_start_year, 1),
     }
+
+    # Location drives per-price tax reassessment in solve_price(). Without it
+    # taxes stay frozen at the asking-price basis, which biases every solved
+    # price LOW (too much tax at the trial price -> too little NOI -> the
+    # solver demands a deeper discount than reality). Baker Trails: $499K
+    # frozen vs $528K reassessed, a $29K error in the wrong direction.
+    # deals.json is the same source board.py uses, so the CLI and the board
+    # can no longer disagree.
+    deals_path = root / "portfolio" / "deals.json"
+    if deals_path.exists():
+        try:
+            entry = json.loads(deals_path.read_text()).get(deal_name) or {}
+            if entry.get("location"):
+                out["location"] = entry["location"]
+            if entry.get("commercial_share") is not None:
+                out["commercial_share"] = entry["commercial_share"]
+        except (ValueError, OSError):
+            pass   # a broken deals.json must not stop the model from running
+
+    return out
 
 
 def main():
