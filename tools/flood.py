@@ -15,9 +15,9 @@ either being down prints an error rather than guessing.
 """
 
 import json
+import subprocess
 import sys
 import urllib.parse
-import urllib.request
 
 GEOCODER = ("https://geocoding.geo.census.gov/geocoder/locations/"
             "onelineaddress?address={addr}&benchmark=Public_AR_Current&format=json")
@@ -30,10 +30,23 @@ NFHL = ("https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/
 SFHA_ZONES = {"A", "AE", "AH", "AO", "AR", "A99", "V", "VE"}
 
 
-def fetch_json(url, timeout=30):
-    req = urllib.request.Request(url, headers={"User-Agent": "deal-intake/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.load(r)
+def fetch_json(url, timeout=45):
+    # curl -4, for the same reason rates.py uses it: hazards.fema.gov resolves an
+    # IPv6 address that resets the connection from some networks, and Python's
+    # urllib will not fall back to IPv4 the way curl does. Symptom was a hard
+    # "[Errno 54] Connection reset by peer" on EVERY flood lookup (found
+    # 2026-08-17 screening Chalmette). Flood is a gate, not a nicety - a lookup
+    # that always raises means no deal in the NOLA box can be screened at all.
+    proc = subprocess.run(
+        ["curl", "-4", "-sL", "--max-time", str(timeout), "--retry", "2",
+         "-A", "deal-intake/1.0", url],
+        capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit(f"Flood service unreachable: curl exit {proc.returncode}")
+    try:
+        return json.loads(proc.stdout)
+    except ValueError:
+        raise SystemExit(f"Flood service returned non-JSON: {proc.stdout[:200]}")
 
 
 def geocode(address):
