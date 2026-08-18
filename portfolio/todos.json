@@ -13,7 +13,7 @@
       "text": "Reply to Justen Rider on Baker Trails - close the loop on the OM",
       "owner": "anthony",
       "status": "open",
-      "why": "NEW 2026-08-17. Rider replied 2026-08-13 with the OM and was straight with you: no T-12 exists, no capex receipts exist, laundry income is an undocumented seller estimate. He asked directly whether you can underwrite on what is available and has heard nothing for 4 days. He has been responsive and honest twice; leaving him silent costs a source. Draft written 2026-08-17: prices the missing documentation rather than walking, and re-anchors at the solved number.",
+      "why": "Draft REWRITTEN 2026-08-17 after the OM was read - it now declines rather than offering $528K, and explains why (1984 vintage + four long-term vacancies + no T-12 = a left tail no price fixes). Lists the three things that would reopen it. Keeps the relationship: Rider has been responsive and honest twice and is worth keeping as a source.",
       "added": "2026-08-17"
     },
     {
@@ -42,18 +42,18 @@
     },
     {
       "id": "baker-om",
-      "text": "Save Baker_Trails_OM_June.pdf into deal-intake/baker-trails/ (manual - both automated paths are blocked)",
-      "owner": "anthony",
-      "status": "open",
-      "why": "Rider attached it 2026-08-13; re-verified 2026-08-17 that deal-intake/baker-trails/ still holds only IC_MEMO_2026-08-02.md, baker-trails_acq.xlsx and rentroll_baker_trails_ESTIMATED.csv. TWO blockers confirmed 2026-08-17, not one: (1) the Gmail connector exposes no attachment-download tool, and (2) the browser route also fails - Chrome has five Google accounts signed in (amekdessie, Optuno, Fingerprint Marketing, Influenceish, Verum Digital) and ridgebackpeak@gmail.com is NOT among them, so Gmail in-browser cannot reach the message. Fix either by signing into ridgebackpeak in Chrome or by saving the PDF by hand. It carries the first real rent data on this deal - every prior Baker number came from the estimated rent roll.",
+      "text": "Baker OM downloaded, ingested, re-underwritten - deal PASSED",
+      "owner": "claude",
+      "status": "done",
+      "why": "DONE 2026-08-17. Anthony signed ridgebackpeak into Chrome (it is Gmail u/8); OM downloaded, saved to deal-intake/baker-trails/, real rent roll extracted and tied to the OM to the dollar. Verdict: PASS - see IC_MEMO_2026-08-17.md. The OM made rents BETTER ($126K gross potential vs $118.8K estimated) but disclosed 8/12 occupancy with four long-term vacancies and 1984 construction. Reply draft rewritten from a $528K offer to an honest pass.",
       "added": "2026-08-13"
     },
     {
       "id": "crexi-alert-baker",
-      "text": "Re-arm the Crexi price alert on Baker Trails at $530K (currently $500K)",
+      "text": "RETIRE the Crexi price alert on Baker Trails - price is no longer the issue",
       "owner": "anthony",
       "status": "open",
-      "why": "The armed alert sits BELOW the price that already qualifies: 13 pct clears at $528K, 16 pct at $490K, equity $146,520. A cut to $520K would be pursue-worthy and the $500K alert would never fire. Solved 2026-08-10 with location='baker', reproduced 08-11 and 08-12. The older $476K figure came from a solve with location omitted, which freezes property taxes; tools/solve.py warns about that exact 2026-08-02/03 omission.",
+      "why": "REVISED 2026-08-17 after reading the OM. The old logic (re-arm at $530K because 13% clears at $528K) is obsolete: that ladder assumed full occupancy on an estimated rent roll and had vintage capex inactive. With the real 1984 vintage and the four long-term vacancies, Baker beats the index only 46% at $528K and 34% at $423K - a price cut alone cannot revive it. Retire or delete the alert so a price drop does not re-trigger a dead deal. What would reopen it is documents, not price.",
       "added": "2026-08-10"
     },
     {

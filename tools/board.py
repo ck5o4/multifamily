@@ -70,11 +70,14 @@ DEAD_WHY = {
     "covington-2nd": "Ask $1.25M. <b>Only near $850–900K</b> — and it needs more cash than you have.",
     "weber-city-mhp": "Flood zone kills it at any realistic price.",
     "cannon-rd": "Needs 12× your capital. Not a maybe.",
-    "baker-trails": ("Ask $750K, works at <b>$528K</b> — too far apart today. "
-                     "<b>Broker answered 2026-08-13:</b> no T-12 exists, no capex receipts "
-                     "exist, laundry income is an undocumented seller estimate. The "
-                     "receipts trigger can never be met, so this comes back on price alone: "
-                     "re-arm the alert at $530K, not $500K."),
+    "baker-trails": ("Ask $750K. <b>PASS — the OM killed it 2026-08-17.</b> Real mix is "
+                     "better than modelled ($126K gross potential), but it is <b>8/12 occupied "
+                     "with four long-term vacancies</b> and built <b>1984</b>. With vintage capex "
+                     "active it beats the index only <b>46% at $528K</b> and <b>34% at $423K</b> — "
+                     "a coin flip is an automatic pass. P10 runs -24% to -40%. "
+                     "<b>Price was never the binding problem</b>, so a price cut alone does not "
+                     "revive it: retire the $530K alert. Reopens on a T-12, verifiable capex "
+                     "docs, or signed leases on the vacant units."),
 }
 
 

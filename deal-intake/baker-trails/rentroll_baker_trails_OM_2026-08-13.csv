@@ -1,0 +1,13 @@
+Unit,Unit Type,SqFt,Current Rent,Market Rent,Status,Source
+5071-A,3BR/1BA,850,950,950,occupied,OM p3 in-place
+5071-B,3BR/1BA,850,950,950,occupied,OM p3 in-place
+5071-C,3BR/1BA,850,850,950,occupied,OM p3 in-place
+5071-D,3BR/1BA,850,950,950,occupied,OM p3 in-place
+5081-A,2BR/1BA,750,875,875,occupied,OM p3 in-place
+5081-B,2BR/1BA,750,0,875,VACANT long-term,OM p2/p3
+5081-C,2BR/1BA,750,650,800,occupied,OM p3 in-place
+5081-D,2BR/1BA,750,675,800,occupied,OM p3 in-place
+5087-A,2BR/1BA,750,0,875,VACANT long-term,OM p2/p3
+5087-B,2BR/1BA,750,750,875,occupied,OM p3 in-place
+5087-C,2BR/1BA,750,0,800,VACANT long-term,OM p2/p3
+5087-D,2BR/1BA,750,0,800,VACANT long-term,OM p2/p3
