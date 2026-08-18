@@ -92,6 +92,11 @@
         "date": "2026-08-02",
         "stage": "dead",
         "note": "screened 2026-08-02: 1.25M / 6u Covington; honest 6.45% cap but IRR 4.0% and equity 505k > capital; would need ~850-900k price; dead unless massive cut"
+      },
+      {
+        "date": "2026-08-17",
+        "stage": "dead",
+        "note": "REVIVE BAND CORRECTED 2026-08-17 (salvaged from the 08-11 recovery-patch email before clearing it, then independently re-solved with location='covington'): works at 907k (13pct) / 841k (16pct) / 733k (22pct). Equity in that band is 203k-252k, which FITS the 300k capital - the prior 'needs more cash than you have' note was true at the 1.25M ask, NOT in the revive band. Stays dead at ask; revives on a cut toward ~900k."
       }
     ],
     "plan": null,

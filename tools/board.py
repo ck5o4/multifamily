@@ -67,7 +67,10 @@ OVERRIDES = {
 DEAD_WHY = {
     "hwy42-mhp": "Ask $3.0M. <b>Only at ~$2.4–2.5M with ~$400K carry</b> — and it sits in a real flood zone.",
     "central-city-2nd": "Ask $1.16M. <b>Only near $700K.</b>",
-    "covington-2nd": "Ask $1.25M. <b>Only near $850–900K</b> — and it needs more cash than you have.",
+    "covington-2nd": ("Ask $1.25M. <b>Works at $907K (13%) / $841K (16%) / $733K (22%).</b> "
+                      "The old &ldquo;needs more cash than you have&rdquo; line was WRONG — that is "
+                      "true at the ask, not in the revive band, where equity is <b>$203–252K</b> of "
+                      "your $300K. Stays dead at the ask; <b>revives on a cut toward ~$900K</b>."),
     "weber-city-mhp": "Flood zone kills it at any realistic price.",
     "cannon-rd": "Needs 12× your capital. Not a maybe.",
     "baker-trails": ("Ask $750K. <b>PASS — the OM killed it 2026-08-17.</b> Real mix is "
