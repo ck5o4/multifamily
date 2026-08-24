@@ -10,6 +10,7 @@ Master workbooks are never modified. Each run writes deal-intake/<deal>/<deal>_<
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -36,20 +37,51 @@ FILE_HINTS = {
 }
 
 
+_FULL_DATE = re.compile(r"(20\d{2})[-_]?(\d{2})[-_]?(\d{2})")
+_YEAR_ONLY = re.compile(r"(20\d{2})")
+
+
+def _recency_key(p):
+    """Sort key for picking the most recent of several candidate source files.
+
+    Sweep 2026-08-24: discovery used to take the alphabetically FIRST match and
+    silently drop the rest, which is actively perverse on real deal folders --
+    ESTIMATED beat OM_2026-08-13 for baker-trails, and 'P&L 2025' beat
+    'P&L YTD 2026' for hwy42. Newest date in the filename wins instead, and the
+    losers are reported rather than dropped.
+    """
+    m = _FULL_DATE.search(p.name)
+    if m:
+        return (2, m.group(1) + m.group(2) + m.group(3), p.name)
+    y = _YEAR_ONLY.search(p.name)
+    if y:
+        return (1, y.group(1), p.name)
+    return (0, "", p.name)
+
+
 def discover(deal_dir):
-    found = {}
-    if not deal_dir.exists():
-        return found
-    for p in sorted(deal_dir.iterdir()):
-        if p.suffix.lower() not in (".csv", ".xlsx", ".xlsm", ".pdf"):
-            continue
-        low = p.name.lower()
-        for kind, hints in FILE_HINTS.items():
-            if kind in found:
+    """Return ({kind: chosen Path}, {kind: [rejected Paths]}).
+
+    Every candidate is surfaced: nothing is silently dropped (tools/README.md).
+    """
+    cands = {kind: [] for kind in FILE_HINTS}
+    if deal_dir.exists():
+        for p in sorted(deal_dir.iterdir()):
+            if p.suffix.lower() not in (".csv", ".xlsx", ".xlsm", ".pdf"):
                 continue
-            if any(h in low for h in hints):
-                found[kind] = p
-    return found
+            low = p.name.lower()
+            for kind, hints in FILE_HINTS.items():
+                if any(h in low for h in hints):
+                    cands[kind].append(p)
+    found, alternates = {}, {}
+    for kind, lst in cands.items():
+        if not lst:
+            continue
+        ranked = sorted(lst, key=_recency_key, reverse=True)
+        found[kind] = ranked[0]
+        if len(ranked) > 1:
+            alternates[kind] = ranked[1:]
+    return found, alternates
 
 
 def write_rent_roll(w, spec, groups):
@@ -140,7 +172,7 @@ def main():
 
     spec = MODELS[args.model]
     deal_dir = INTAKE / args.deal
-    src = discover(deal_dir)
+    src, alternates = discover(deal_dir)
     if args.rent_roll:
         src["rent_roll"] = Path(args.rent_roll)
     if args.t12:
@@ -155,6 +187,22 @@ def main():
 
     groups, comp_groups, t12_lines = [], [], {}
     all_notes = []
+
+    # Several files matched the same slot. Say so loudly: the auto-pick is the
+    # newest by filename date, which is a guess, and the override is one flag.
+    _overrides = {"rent_roll": "--rent-roll", "t12": "--t12", "comps": "--comps"}
+    for kind in ("rent_roll", "t12", "comps"):
+        others = alternates.get(kind)
+        if not others or getattr(args, kind if kind != "rent_roll" else "rent_roll"):
+            continue
+        print(f"\n  WARNING: {len(others) + 1} files match '{kind}' in {deal_dir.name}.")
+        print(f"    using   {src[kind].name}   (newest date in filename)")
+        for o in others:
+            print(f"    ignored {o.name}")
+        print(f"    override with {_overrides[kind]} <path> if that is the wrong one")
+        all_notes.append(
+            f"{kind}: {len(others) + 1} candidate files - used {src[kind].name}, "
+            f"ignored {', '.join(o.name for o in others)}")
 
     if src.get("rent_roll"):
         groups, notes = parsers.parse_rent_roll(src["rent_roll"], sheet=args.sheet_rentroll)

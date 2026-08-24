@@ -84,6 +84,45 @@ def test_rentcast_matcher_requires_all_tokens():
     check("rentcast: cross-property token match rejected", bad is None)
 
 
+def test_discovery_prefers_newest_and_reports_alternates():
+    """Multiple candidates for one slot: newest wins, losers are reported.
+
+    2026-08-24 sweep: discover() took the alphabetically FIRST match and
+    silently dropped the rest. baker-trails therefore resolved to
+    rentroll_baker_trails_ESTIMATED.csv (GPR $118,800) instead of the seller's
+    rentroll_baker_trails_OM_2026-08-13.csv (GPR $114,000 in-place, real
+    8x2BR/4x3BR mix), with no warning that a second roll existed.
+    """
+    import intake
+    from pathlib import Path
+
+    baker = Path(intake.INTAKE) / "baker-trails"
+    found, alt = intake.discover(baker)
+    check("discovery: baker-trails resolves to the OM roll, not ESTIMATED",
+          found.get("rent_roll") is not None
+          and found["rent_roll"].name == "rentroll_baker_trails_OM_2026-08-13.csv",
+          f"picked {found.get('rent_roll')}")
+    check("discovery: the superseded roll is reported, not dropped",
+          any(p.name == "rentroll_baker_trails_ESTIMATED.csv"
+              for p in alt.get("rent_roll", [])),
+          f"alternates {alt.get('rent_roll')}")
+
+    hwy = Path(intake.INTAKE) / "hwy42-mhp"
+    found2, alt2 = intake.discover(hwy)
+    check("discovery: hwy42 T-12 picks YTD 2026 over P&L 2025",
+          found2.get("t12") is not None and "2026" in found2["t12"].name,
+          f"picked {found2.get('t12')}")
+    check("discovery: hwy42's two rejected T-12s are both reported",
+          len(alt2.get("t12", [])) == 2,
+          f"alternates {alt2.get('t12')}")
+
+    # A folder with one candidate per slot must report no alternates at all.
+    eden = Path(intake.INTAKE) / "eden-church-mhp"
+    _, alt3 = intake.discover(eden)
+    check("discovery: no false alternates when each slot is unambiguous",
+          alt3 == {}, f"alternates {alt3}")
+
+
 def main():
     print("REGRESSION TESTS (2026-08-09 sweep)")
     test_solve_not_false_unreachable()
@@ -91,6 +130,8 @@ def main():
     test_waterfall_invalid_flag()
     test_mc_vacancy_centered_on_underwriting()
     test_rentcast_matcher_requires_all_tokens()
+    print("REGRESSION TESTS (2026-08-24 sweep)")
+    test_discovery_prefers_newest_and_reports_alternates()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)
