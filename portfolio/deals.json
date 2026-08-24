@@ -286,5 +286,19 @@
     "actuals": [],
     "payback": [],
     "location": "new orleans"
+  },
+  "mlk-2119": {
+    "stage": "dead",
+    "created": "2026-08-24",
+    "history": [
+      {
+        "date": "2026-08-24",
+        "stage": "dead",
+        "note": "2119 Martin Luther King Jr Blvd, Central City, Orleans Parish. Crexi alert 2026-08-24. 2u (3BR/2BA x2, 2,667 SF total), 2023 new construction, ask 490k = 245k/unit. Listing pitch is tourism/STR + 1031 - Orleans regulates STR, never underwritten as lease income. DEAD at ask: at 2,000/mo per unit (Central City avg apt rent ~1,637; premium for new build) going-in cap 5.03pct, Y1 NOI 24,661, levered IRR -9.8pct, EM 0.62x. DSCR 1.30 caps the loan at 228,808 (47pct LTV) so equity at ask is 273,281 = 91pct of capital for 2 doors. 13pct clears at 269k = 45pct below ask, and even there P(beat index) is only 36pct. Insurance set to 3,000/unit (Orleans wind). Worse per door than central-city-2nd (166k/u, also dead). Revisit only near 270k."
+      }
+    ],
+    "plan": null,
+    "actuals": [],
+    "payback": []
   }
 }

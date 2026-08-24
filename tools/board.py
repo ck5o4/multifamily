@@ -81,6 +81,10 @@ DEAD_WHY = {
                       "your $300K. Stays dead at the ask; <b>revives on a cut toward ~$900K</b>."),
     "weber-city-mhp": "Flood zone kills it at any realistic price.",
     "cannon-rd": "Needs 12× your capital. Not a maybe.",
+    "mlk-2119": ("Ask $490K for <b>2 doors</b> ($245K/unit). Levered IRR <b>-9.8%</b>, "
+                 "0.62x multiple — it loses money, it does not merely miss the band. "
+                 "DSCR caps the loan at 47% LTV, so equity at ask is <b>$273K = 91% of "
+                 "your capital</b> for two units. <b>Only near $270K.</b>"),
     # Rewritten 2026-08-24. The old copy read "46% at $528K and 34% at $423K"
     # as if it were a price ladder; those two rows came from DIFFERENT vacancy
     # assumptions in IC_MEMO_2026-08-17 (7.5% and 20%), so the odds appeared to
