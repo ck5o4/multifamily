@@ -10,6 +10,7 @@ A scheduled cloud session republishes the output to the standing artifact URL.
 import datetime
 import html
 import json
+import math
 import random
 import subprocess
 import sys
@@ -20,9 +21,11 @@ import pymodel
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "portfolio" / "board.html"
-# Re-published 2026-08-17: the old 7ff847d5 artifact is unreachable (404s, and
-# `Artifact list` returns nothing for this account), so the standing URL moved.
-ARTIFACT_URL = "https://claude.ai/code/artifact/2b362f80-0ceb-4aaf-8d5b-41f212b377d0"
+# Standing artifact URL. (The 2026-08-17 note claiming 7ff847d5 had 404'd was
+# wrong - `Artifact list` on 2026-08-24 shows it live and owned by this account,
+# last updated 2026-08-23. Restored to the real URL; the 2b362f80 replacement
+# was never actually published.)
+ARTIFACT_URL = "https://claude.ai/code/artifact/7ff847d5-56e2-425a-be47-da22618fe1b3"
 
 # Curated copy per deal — words only; every number is computed fresh below.
 OVERRIDES = {
@@ -53,10 +56,15 @@ OVERRIDES = {
                    "every number."),
         "location": "New Orleans",
         "carry": None,
-        "strategy": ("Get the documents first. Then open at <b>~$580K</b>, target "
-                     "<b>$664K or less</b>, don't go above <b>$714K</b> on estimated "
-                     "rents. Listing is young — if he won't move, wait; it gets "
-                     "cheaper as it sits."),
+        "strategy": ("<b>Sweep 2026-08-24 — this deal no longer clears the house rule at "
+                     "ANY price on the ladder.</b> With rent/expense growth recentred on "
+                     "our own underwriting and vintage capex active for a 1970 building, "
+                     "even the $579K &ldquo;ideal&rdquo; rung beats an index fund only 44% "
+                     "of the time. The old advice (open $580K, target $664K, cap $714K) "
+                     "was computed on an optimistic engine. <b>Do not offer on the "
+                     "estimated basis.</b> Hernandez's documents are now the whole deal: "
+                     "real 2BR unit mix and a T-12 could rebuild it, and nothing else "
+                     "will. Anthony's call whether to keep it open — the numbers say pass."),
         "gate": ("<b>Before any offer:</b> real rent roll, T-12, unit mix, renovation "
                  "scope, and whether any income is short-term rental."),
         "flood": "Zone X levee-protected — no flood policy required",
@@ -73,19 +81,62 @@ DEAD_WHY = {
                       "your $300K. Stays dead at the ask; <b>revives on a cut toward ~$900K</b>."),
     "weber-city-mhp": "Flood zone kills it at any realistic price.",
     "cannon-rd": "Needs 12× your capital. Not a maybe.",
+    # Rewritten 2026-08-24. The old copy read "46% at $528K and 34% at $423K"
+    # as if it were a price ladder; those two rows came from DIFFERENT vacancy
+    # assumptions in IC_MEMO_2026-08-17 (7.5% and 20%), so the odds appeared to
+    # FALL as the price fell. On one basis they rise, as they must. The verdict
+    # is unchanged and now better supported: after this sweep's MC corrections
+    # (growth recentered on the deal's own underwriting; vintage capex active)
+    # no price in the plausible range comes close to the rule.
     "baker-trails": ("Ask $750K. <b>PASS — the OM killed it 2026-08-17.</b> Real mix is "
                      "better than modelled ($126K gross potential), but it is <b>8/12 occupied "
-                     "with four long-term vacancies</b> and built <b>1984</b>. With vintage capex "
-                     "active it beats the index only <b>46% at $528K</b> and <b>34% at $423K</b> — "
-                     "a coin flip is an automatic pass. P10 runs -24% to -40%. "
-                     "<b>Price was never the binding problem</b>, so a price cut alone does not "
-                     "revive it: retire the $530K alert. Reopens on a T-12, verifiable capex "
-                     "docs, or signed leases on the vacant units."),
+                     "with four long-term vacancies</b> and built <b>1984</b>. Stabilised at "
+                     "7.5% vacancy with vintage capex active it beats the index "
+                     "<b>16% at $528K</b>, <b>22% at $450K</b>, <b>24% at $423K</b> — odds do "
+                     "improve as the price falls, but a 44% discount the seller will never take "
+                     "still leaves it losing to an index fund three times in four. On the "
+                     "lease-up case (20% vacancy) it is 8–10%. "
+                     "<b>Price is not the binding problem</b> — documentation is — so a price "
+                     "cut alone does not revive it: retire the $530K alert. Reopens on a T-12, "
+                     "verifiable capex docs, or signed leases on the vacant units."),
 }
 
 
 def money(x):
     return f"${x:,.0f}"
+
+
+def _beats_index(samples):
+    """P(deal IRR > market 5-yr CAGR), market ~ Normal(10%, 8%).
+
+    Closed form. Pairing each sample with one rng.gauss() draw (the original
+    2026-08-09 implementation) is unbiased but carries +/-3pp of pure RNG noise
+    on a rule whose threshold is exactly 50% - eden moved 52.1%-57.7% across
+    twenty choices of an arbitrary seed. Integrating the normal CDF instead
+    removes that term entirely. (sweep 2026-08-24)
+    """
+    if not samples:
+        return None
+    return sum(0.5 * (1.0 + math.erf((x - 0.10) / (0.08 * math.sqrt(2.0))))
+               for x in samples) / len(samples)
+
+
+def _vintage(name):
+    """monte_carlo kwargs carrying the deal's vintage, from portfolio/deals.json.
+
+    Returns {} when the vintage is unknown, which leaves the hazard model inert
+    and makes monte_carlo say so on stderr. Never guess a vintage: an invented
+    year_built is a fabricated left tail.
+    """
+    try:
+        rec = json.loads((ROOT / "portfolio" / "deals.json").read_text()).get(name, {})
+    except Exception:
+        return {}
+    if rec.get("effective_age") is not None:
+        return {"effective_age_override": rec["effective_age"]}
+    if rec.get("year_built") is not None:
+        return {"year_built": rec["year_built"]}
+    return {}
 
 
 def compute_deal(name):
@@ -102,14 +153,30 @@ def compute_deal(name):
     for t in (0.13, 0.16, 0.22):
         res = pymodel.solve_price(dict(inputs), t)
         ladder[t] = res["price"] if res else None
+    # Vintage capex: the 2026-08-09 sweep wired --year-built into the CLI only,
+    # so every board render left the hazard model INERT and quoted an optimistic
+    # left tail (sweep 2026-08-24). Treme is a 1970 building carrying a $350/unit
+    # reserve; active, its "beats the index" odds fall from 43% to 20% at ask.
+    _vint = _vintage(name)
     mc = pymodel.monte_carlo({k: v for k, v in inputs.items() if k != "location"},
-                             n=1000, seed=42, deal_name=name)
+                             n=1000, seed=42, deal_name=name, **_vint)
     # House rule 2026-08-09: a deal must beat the same-period index or pass.
     # Market 5-yr CAGR modeled Normal(10%, 8%) vs the deal's MC IRR samples.
-    rng = random.Random(7)
-    samples = mc.get("irr_samples") or []
-    beats_index = (sum(1 for irr in samples if irr > rng.gauss(0.10, 0.08))
-                   / len(samples)) if samples else None
+    beats_index = _beats_index(mc.get("irr_samples") or [])
+
+    # Evaluate the house rule at every rung of the ladder, not only at ask
+    # (sweep 2026-08-24). The board published a "minimum to pursue" price
+    # without ever checking it against the rule printed at the top of the same
+    # page: treme's $714,000 rung beats the index well under half the time.
+    ladder_beats = {}
+    for t, price in ladder.items():
+        if not price:
+            ladder_beats[t] = None
+            continue
+        _mc = pymodel.monte_carlo(
+            {k: v for k, v in inputs.items() if k != "location"} | {"price": price},
+            n=1000, seed=42, deal_name=name, **_vint)
+        ladder_beats[t] = _beats_index(_mc.get("irr_samples") or [])
     return {
         "beats_index": beats_index,
         "price": inputs["price"], "units": units, "avg_rent": avg_rent,
@@ -121,7 +188,7 @@ def compute_deal(name):
         "mgmt": inputs.get("mgmt_pct", 0.08),
         "noi": r["noi"][1], "cap": r["going_in_cap"], "irr": r["levered_irr"],
         "dscr": r["dscr"][1], "equity": r["total_equity"],
-        "ladder": ladder, "mc": mc,
+        "ladder": ladder, "ladder_beats": ladder_beats, "mc": mc,
     }
 
 
@@ -129,6 +196,31 @@ def stat(k, v, sub=""):
     sub_html = f"<small>{sub}</small>" if sub else ""
     return (f'<div class="stat"><div class="k">{k}</div>'
             f'<div class="v">{v} {sub_html}</div></div>')
+
+
+def rung(target, label, lad, lad_beats):
+    """One price-ladder row, scored against the house rule at that price.
+
+    The board used to print a "minimum to pursue" price without ever checking
+    it against the rule stated at the top of the same page (sweep 2026-08-24).
+    A rung that does not beat the index more than half the time is marked, so
+    the page cannot recommend a price its own rule rejects.
+    """
+    price = lad.get(target)
+    if not price:
+        return (f'<div class="row"><span class="k">Price for a {target*100:.0f}% return '
+                f'<small>{label}</small></span><span class="v">n/a</span></div>')
+    b = (lad_beats or {}).get(target)
+    if b is None:
+        note = ""
+    elif b > 0.50:
+        note = f'<small class="ok">beats index {b*100:.0f}% — clears the house rule</small>'
+    else:
+        note = (f'<small class="warn">beats index only {b*100:.0f}% — FAILS the house '
+                f'rule at this price</small>')
+    return (f'<div class="row"><span class="k">Price for a {target*100:.0f}% return '
+            f'<small>{label}</small></span>'
+            f'<span class="v">{money(price)} {note}</span></div>')
 
 
 def render_card(name, deal_rec, d):
@@ -158,9 +250,9 @@ def render_card(name, deal_rec, d):
     <p class="thesis">{ov['thesis']}</p>
     <div class="pricebox">
       <div class="row"><span class="k">Listed price</span><span class="v">{money(d['price'])}</span></div>
-      <div class="row"><span class="k">Price for a 13% return <small>minimum to pursue</small></span><span class="v">{money(lad[0.13]) if lad[0.13] else 'n/a'}</span></div>
-      <div class="row"><span class="k">Price for a 16% return <small>strong deal</small></span><span class="v">{money(lad[0.16]) if lad[0.16] else 'n/a'}</span></div>
-      <div class="row"><span class="k">Price for a 22% return <small>ideal</small></span><span class="v">{money(lad[0.22]) if lad[0.22] else 'n/a'}</span></div>
+      {rung(0.13, "minimum to pursue", lad, d.get('ladder_beats', {}))}
+      {rung(0.16, "strong deal", lad, d.get('ladder_beats', {}))}
+      {rung(0.22, "ideal", lad, d.get('ladder_beats', {}))}
       {carry_rows}
       <div class="strategy"><span class="k">Recommended strategy</span><span class="s">{ov['strategy']}</span></div>
     </div>

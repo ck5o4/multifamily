@@ -139,6 +139,13 @@
     font-weight: 600; font-size: 1.05rem; white-space: nowrap;
   }
   .pricebox .v.muted { color: var(--ink-3); font-weight: 400; font-size: 0.92rem; white-space: normal; }
+  /* House-rule verdict on each price rung (sweep 2026-08-24). */
+  .pricebox .v small {
+    display: block; font-family: var(--sans, inherit); font-weight: 500;
+    font-size: 0.74rem; white-space: normal; margin-top: 0.15rem;
+  }
+  .pricebox .v small.ok   { color: var(--live); }
+  .pricebox .v small.warn { color: var(--watch); }
   .pricebox .strategy {
     background: var(--accent-tint);
     padding: 0.8rem 1rem;
@@ -232,7 +239,7 @@
   <header>
     <div class="brand">Ridgeback Peak Properties</div>
     <h1>Deal Board</h1>
-    <div class="meta">Auto-generated 2026-08-23 · every number recomputed from the live models · private</div>
+    <div class="meta">Auto-generated 2026-08-24 · every number recomputed from the live models · private</div>
   </header>
   <section class="verdict">
     <h2>To do</h2>
@@ -265,9 +272,9 @@
     <p class="thesis">Mobile home park, all 18 homes park-owned (15 built 2017–19). Seller's real P&L in hand. Motivated seller: bought May 2024, exiting for 15 months, already cut the price $226K.</p>
     <div class="pricebox">
       <div class="row"><span class="k">Listed price</span><span class="v">$1,699,000</span></div>
-      <div class="row"><span class="k">Price for a 13% return <small>minimum to pursue</small></span><span class="v">$1,559,000</span></div>
-      <div class="row"><span class="k">Price for a 16% return <small>strong deal</small></span><span class="v">$1,443,000</span></div>
-      <div class="row"><span class="k">Price for a 22% return <small>ideal</small></span><span class="v">$1,252,000</span></div>
+      <div class="row"><span class="k">Price for a 13% return <small>minimum to pursue</small></span><span class="v">$1,559,000 <small class="warn">beats index only 39% — FAILS the house rule at this price</small></span></div>
+      <div class="row"><span class="k">Price for a 16% return <small>strong deal</small></span><span class="v">$1,443,000 <small class="warn">beats index only 46% — FAILS the house rule at this price</small></span></div>
+      <div class="row"><span class="k">Price for a 22% return <small>ideal</small></span><span class="v">$1,251,000 <small class="ok">beats index 60% — clears the house rule</small></span></div>
       <div class="row"><span class="k">Price your $300K closes without seller carry</span><span class="v">~$1,100,000</span></div><div class="row"><span class="k">Price your $300K closes with seller carry</span><span class="v">~$1,250,000</span></div>
       <div class="strategy"><span class="k">Recommended strategy</span><span class="s">Ask for <b>$1.25M</b> with the seller carrying <b>~$190–240K</b>. Your cash in ≈ <b>$260–300K</b> (bigger carry = reserve left over), honest return <b>27.5%</b>. Walk if he won't carry AND won't come under <b>$1.45M</b>.</span></div>
     </div>
@@ -284,8 +291,8 @@
       <div class="stat"><div class="k">Debt coverage</div><div class="v">1.36x <small>bank wants 1.25+</small></div></div>
       <div class="stat"><div class="k">Insurance</div><div class="v">$1,060/unit/yr </div></div>
       <div class="stat"><div class="k">Property tax (post-sale)</div><div class="v">$17,007 </div></div>
-      <div class="stat"><div class="k">Odds (Monte Carlo, at ask)</div><div class="v">P10 -4% · P50 12% · P(≥13%) 45% </div></div>
-      <div class="stat"><div class="k">Beats the stock market (at ask)</div><div class="v">55% odds <small>house rule: beat the index or pass</small></div></div>
+      <div class="stat"><div class="k">Odds (Monte Carlo, at ask)</div><div class="v">P10 -16% · P50 4% · P(≥13%) 23% </div></div>
+      <div class="stat"><div class="k">Beats the stock market (at ask)</div><div class="v">33% odds <small>house rule: beat the index or pass</small></div></div>
       <div class="stat"><div class="k">Flood</div><div class="v">Zone X (clean) — but ask the 2016 flood question on tour </div></div>
       <div class="stat"><div class="k">Documents</div><div class="v">Seller actuals ✓ (P&L 2025, rent roll, utility bill) </div></div>
     </div>
@@ -300,11 +307,11 @@
     <p class="thesis">8-unit building, most units renovated, levee-protected. Rents estimated at $1,400/mo until seller documents arrive — same-block comps support $1,290–1,500. 2BR units in the mix would raise every number.</p>
     <div class="pricebox">
       <div class="row"><span class="k">Listed price</span><span class="v">$849,000</span></div>
-      <div class="row"><span class="k">Price for a 13% return <small>minimum to pursue</small></span><span class="v">$714,000</span></div>
-      <div class="row"><span class="k">Price for a 16% return <small>strong deal</small></span><span class="v">$664,000</span></div>
-      <div class="row"><span class="k">Price for a 22% return <small>ideal</small></span><span class="v">$580,000</span></div>
+      <div class="row"><span class="k">Price for a 13% return <small>minimum to pursue</small></span><span class="v">$714,000 <small class="warn">beats index only 33% — FAILS the house rule at this price</small></span></div>
+      <div class="row"><span class="k">Price for a 16% return <small>strong deal</small></span><span class="v">$663,000 <small class="warn">beats index only 36% — FAILS the house rule at this price</small></span></div>
+      <div class="row"><span class="k">Price for a 22% return <small>ideal</small></span><span class="v">$579,000 <small class="warn">beats index only 43% — FAILS the house rule at this price</small></span></div>
       <div class="row"><span class="k">Seller carry needed?</span><span class="v muted">No — your $300K closes this at any price on this list</span></div>
-      <div class="strategy"><span class="k">Recommended strategy</span><span class="s">Get the documents first. Then open at <b>~$580K</b>, target <b>$664K or less</b>, don't go above <b>$714K</b> on estimated rents. Listing is young — if he won't move, wait; it gets cheaper as it sits.</span></div>
+      <div class="strategy"><span class="k">Recommended strategy</span><span class="s"><b>Sweep 2026-08-24 — this deal no longer clears the house rule at ANY price on the ladder.</b> With rent/expense growth recentred on our own underwriting and vintage capex active for a 1970 building, even the $579K &ldquo;ideal&rdquo; rung beats an index fund only 44% of the time. The old advice (open $580K, target $664K, cap $714K) was computed on an optimistic engine. <b>Do not offer on the estimated basis.</b> Hernandez's documents are now the whole deal: real 2BR unit mix and a T-12 could rebuild it, and nothing else will. Anthony's call whether to keep it open — the numbers say pass.</span></div>
     </div>
     <div class="stats">
       <div class="stat"><div class="k">Units</div><div class="v">8 </div></div>
@@ -319,8 +326,8 @@
       <div class="stat"><div class="k">Debt coverage</div><div class="v">1.30x <small>bank wants 1.25+</small></div></div>
       <div class="stat"><div class="k">Insurance</div><div class="v">$3,000/unit/yr </div></div>
       <div class="stat"><div class="k">Property tax (post-sale)</div><div class="v">$11,206 </div></div>
-      <div class="stat"><div class="k">Odds (Monte Carlo, at ask)</div><div class="v">P10 -8% · P50 8% · P(≥13%) 33% </div></div>
-      <div class="stat"><div class="k">Beats the stock market (at ask)</div><div class="v">43% odds <small>house rule: beat the index or pass</small></div></div>
+      <div class="stat"><div class="k">Odds (Monte Carlo, at ask)</div><div class="v">P10 -30% · P50 -4% · P(≥13%) 21% </div></div>
+      <div class="stat"><div class="k">Beats the stock market (at ask)</div><div class="v">27% odds <small>house rule: beat the index or pass</small></div></div>
       <div class="stat"><div class="k">Flood</div><div class="v">Zone X levee-protected — no flood policy required </div></div>
       <div class="stat"><div class="k">Documents</div><div class="v">Estimates — documents requested </div></div>
     </div>
@@ -328,14 +335,14 @@
   </section>
   <section>
     <h2 class="section">Shelved — comes back automatically if…</h2>
-    <div class="row-deal"><span class="name">Baker Trails <span class="pill watch">Watching</span></span><span class="why">Ask $750K. <b>PASS — the OM killed it 2026-08-17.</b> Real mix is better than modelled ($126K gross potential), but it is <b>8/12 occupied with four long-term vacancies</b> and built <b>1984</b>. With vintage capex active it beats the index only <b>46% at $528K</b> and <b>34% at $423K</b> — a coin flip is an automatic pass. P10 runs -24% to -40%. <b>Price was never the binding problem</b>, so a price cut alone does not revive it: retire the $530K alert. Reopens on a T-12, verifiable capex docs, or signed leases on the vacant units.</span></div>
+    <div class="row-deal"><span class="name">Baker Trails <span class="pill watch">Watching</span></span><span class="why">Ask $750K. <b>PASS — the OM killed it 2026-08-17.</b> Real mix is better than modelled ($126K gross potential), but it is <b>8/12 occupied with four long-term vacancies</b> and built <b>1984</b>. Stabilised at 7.5% vacancy with vintage capex active it beats the index <b>16% at $528K</b>, <b>22% at $450K</b>, <b>24% at $423K</b> — odds do improve as the price falls, but a 44% discount the seller will never take still leaves it losing to an index fund three times in four. On the lease-up case (20% vacancy) it is 8–10%. <b>Price is not the binding problem</b> — documentation is — so a price cut alone does not revive it: retire the $530K alert. Reopens on a T-12, verifiable capex docs, or signed leases on the vacant units.</span></div>
   </section>
   <section>
     <h2 class="section">Dead — and the price that would revive each</h2>
     <div class="row-deal"><span class="name">Cannon Rd <span class="pill dead">Dead</span></span><span class="why">Needs 12× your capital. Not a maybe.</span></div><div class="row-deal"><span class="name">Covington 2Nd <span class="pill dead">Dead</span></span><span class="why">Ask $1.25M. <b>Works at $907K (13%) / $841K (16%) / $733K (22%).</b> The old &ldquo;needs more cash than you have&rdquo; line was WRONG — that is true at the ask, not in the revive band, where equity is <b>$203–252K</b> of your $300K. Stays dead at the ask; <b>revives on a cut toward ~$900K</b>.</span></div><div class="row-deal"><span class="name">Weber City Mhp <span class="pill dead">Dead</span></span><span class="why">Flood zone kills it at any realistic price.</span></div><div class="row-deal"><span class="name">Hwy42 Mhp <span class="pill dead">Dead</span></span><span class="why">Ask $3.0M. <b>Only at ~$2.4–2.5M with ~$400K carry</b> — and it sits in a real flood zone.</span></div><div class="row-deal"><span class="name">Central City 2Nd <span class="pill dead">Dead</span></span><span class="why">Ask $1.16M. <b>Only near $700K.</b></span></div>
   </section>
   <footer>
-    Generated by tools/board.py at commit <code>c977d22</code> on 2026-08-23 ·
+    Generated by tools/board.py at commit <code>b50e1c4</code> on 2026-08-24 ·
     all numbers computed clean ·
     republished to the standing link by the daily scan routine
   </footer>

@@ -57,6 +57,47 @@ def gather(deal, force=False):
     errors = rc.scan_errors(wb)
     failing = [f"check: {label} -> {st}" for label, st in checks if st != "OK"]
     failing += [f"formula error: {e}" for e in errors]
+
+    # Document-provenance gate (sweep 2026-08-24). A lender package presenting
+    # ESTIMATED rents as "In-Place Rent", with no T-12 and an unquoted insurance
+    # line, is exactly what icmemo already refuses to gloss - bankpackage must
+    # not be the softer document. These are diligence gaps, not workbook errors,
+    # so they get their own list and their own banner.
+    deal_dir = ROOT / "deal-intake" / deal
+    _pf = ROOT / "portfolio" / "deals.json"
+    _rec = json.loads(_pf.read_text()).get(deal, {}) if _pf.exists() else {}
+    rr_status, t12_missing, ins_unquoted = "actual", False, False
+    if deal_dir.exists():
+        try:
+            import icmemo as _ic
+            _rr_path, rr_status = _ic._detect_rent_roll(deal_dir)
+            rr_status = rr_status or "missing"
+            t12_missing = _ic._detect_t12(deal_dir) is None
+            _hist = " ".join(h.get("note", "") for h in _rec.get("history", []))
+            ins_unquoted = not _ic._insurance_noted(deal_dir, _hist)
+        except Exception:
+            pass
+    dd_gaps = []
+    if rr_status in ("estimated", "from_listing"):
+        dd_gaps.append(f"rent roll is {rr_status.upper()} - the rents shown are NOT a "
+                       "seller-verified in-place roll")
+    if rr_status == "missing":
+        dd_gaps.append("no rent roll file in the deal folder")
+    if t12_missing:
+        dd_gaps.append("no trailing-12 operating statement on file - expenses are "
+                       "model assumptions, not actuals")
+    if ins_unquoted:
+        dd_gaps.append("insurance is a template estimate, not a bindable quote "
+                       "(the #1 kill factor in this market)")
+    if dd_gaps:
+        print("Deal is missing diligence documents a banker will ask for:")
+        for g in dd_gaps:
+            print(f"  {g}")
+        if not force:
+            sys.exit("REFUSING to generate. Get the documents, or rerun with --force "
+                     "to generate with the estimates plainly labelled.")
+        print("--force given: generating with estimates labelled and a warning banner.")
+
     if failing:
         print("Workbook has failing checks or formula errors - a banker can pick "
               "these numbers apart:")
@@ -88,10 +129,14 @@ def gather(deal, force=False):
     pf = ROOT / "portfolio" / "deals.json"
     if pf.exists():
         pd = json.loads(pf.read_text()).get(deal, {})
-    return wb, v, s, mix, years, pd, failing
+    prov = {"rr_status": rr_status, "dd_gaps": dd_gaps, "ins_unquoted": ins_unquoted}
+    return wb, v, s, mix, years, pd, failing, prov
 
 
-def build_html(deal, v, s, mix, years, pd, failing=None):
+def build_html(deal, v, s, mix, years, pd, failing=None, prov=None):
+    prov = prov or {"rr_status": "actual", "dd_gaps": [], "ins_unquoted": False}
+    rents_estimated = prov["rr_status"] in ("estimated", "from_listing", "missing")
+    rent_col_header = "Est. Rent (unverified)" if rents_estimated else "In-Place Rent"
     price = s.get("purchase_price")
     loan = v.get("loan_amount")
     reno = v.get("reno_budget") or 0
@@ -170,6 +215,11 @@ def build_html(deal, v, s, mix, years, pd, failing=None):
   'margin:16px 0; font-weight:700;">WARNING - GENERATED WITH --force: the '
   'underwriting workbook has FAILING CHECKS / FORMULA ERRORS. Do NOT send to '
   'a banker until fixed.<br>' + '<br>'.join(failing) + '</div>') if failing else ''}
+{('<div style="border:3px solid #b00020; color:#b00020; padding:12px 16px; '
+  'margin:16px 0; font-weight:700;">WARNING - GENERATED WITH --force: this deal '
+  'is missing diligence documents. The figures below rest on estimates, not '
+  'seller-verified records:<br>' + '<br>'.join(prov['dd_gaps']) + '</div>')
+  if prov.get('dd_gaps') else ''}
 <div class="cover">
   <h1>{deal.replace('-', ' ').title()}</h1>
   <div class="sub">{n0(units)}-Unit Multifamily Acquisition &mdash; Louisiana</div>
@@ -206,9 +256,13 @@ def build_html(deal, v, s, mix, years, pd, failing=None):
 <p><span class="fill">[FILL: address, year built, construction type, 2-3 sentences on
 location/condition]</span></p>
 <table>
-  <tr><th>Units</th><th>Type</th><th>SF</th><th>In-Place Rent</th></tr>
+  <tr><th>Units</th><th>Type</th><th>SF</th><th>{rent_col_header}</th></tr>
   {mix_rows}
 </table>
+{('<p class="note" style="color:#b00020;">The rents above are ESTIMATED, not a '
+  'seller-verified in-place rent roll. They are shown for scoping only and must '
+  'be confirmed against a rent roll and trailing-12 before any credit decision.'
+  '</p>') if rents_estimated else ''}
 {reno_block}
 
 <h2>Sources &amp; Uses</h2>
@@ -230,9 +284,9 @@ location/condition]</span></p>
   <tr><th></th><th>NOI</th><th>Debt Service</th><th>DSCR</th><th>Cash Flow</th></tr>
   {yr_rows}
 </table>
-<p class="note">Underwriting assumptions: {pct(s.get('vacancy'), 0)} vacancy,
+<p class="note">Underwriting assumptions: {pct((s.get('vacancy') or 0) + (s.get('bad_debt') or 0), 1)} vacancy + bad debt,
 {pct(s.get('rent_growth'), 0)} rent growth, {pct(s.get('expense_growth'), 1)} expense growth,
-insurance {money(s.get('insurance'))}/unit/yr (Louisiana-adjusted), property taxes
+insurance {money(s.get('insurance'))}/unit/yr {'<b style="color:#b00020;">(TEMPLATE ESTIMATE - no bindable quote yet)</b>' if prov['ins_unquoted'] else '(Louisiana-adjusted)'}, property taxes
 reassessed to purchase price at the parish millage - not the seller's current bill.</p>
 {refi_block}
 
@@ -251,8 +305,8 @@ def main():
         print(__doc__)
         return
     deal = args[0]
-    wb, v, s, mix, years, pd, failing = gather(deal, force=force)
-    html = build_html(deal, v, s, mix, years, pd, failing=failing)
+    wb, v, s, mix, years, pd, failing, prov = gather(deal, force=force)
+    html = build_html(deal, v, s, mix, years, pd, failing=failing, prov=prov)
     out = wb.parent / f"{deal}_bank_package.html"
     out.write_text(html)
     print(f"bank package -> {out}")

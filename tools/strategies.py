@@ -67,15 +67,25 @@ def compare(deal_workbook, spec, lp_capital=None):
               f"{(v['em'] or 0):>6.2f}x"
               f"{('$' + format(int(co), ',')) if co else '-':>11}  {flag}")
 
-    # Stoa timing scenario - hot market bid, labeled as upside only
-    hot_cap = max(0.06, honest_cap - 0.015)
-    v, _, _ = _run(deal_workbook, spec, work,
-                   {"hold_years": 3, "refi_year": 0, "exit_cap": hot_cap})
-    irr = v["irr"] if isinstance(v["irr"], (int, float)) else 0
-    print(f"    {'-'*70}")
-    print(f"    {'IF market runs hot yr 3':<26}{irr*100:>7.1f}%"
-          f"{'$' + format(int(v['profit'] or 0), ','):>12}{(v['em'] or 0):>6.2f}x"
-          f"{'-':>11}  cap {hot_cap*100:.2f}% - UPSIDE ONLY, never the plan")
+    # Stoa timing scenario - hot market bid, labeled as upside only.
+    # A hot market means cap COMPRESSION (a higher exit value), so hot_cap must
+    # sit BELOW the honest exit cap. The old `max(0.06, honest_cap - 0.015)`
+    # floor inverted that on any sub-5.5% going-in deal: it printed an exit cap
+    # ABOVE the base case and an IRR 8-11 points BELOW the honest scenario it
+    # was meant to bracket (cannon -12.1% under "UPSIDE ONLY"). (sweep 2026-08-24)
+    hot_cap = min(honest_cap - 0.005, max(0.045, honest_cap - 0.015))
+    if hot_cap >= honest_cap:
+        print(f"    {'-'*70}")
+        print("    Hot-market upside scenario suppressed: no credible compressed exit "
+              f"cap below the {honest_cap*100:.2f}% going-in without dropping under 4.5%.")
+    else:
+        v, _, _ = _run(deal_workbook, spec, work,
+                       {"hold_years": 3, "refi_year": 0, "exit_cap": hot_cap})
+        irr = v["irr"] if isinstance(v["irr"], (int, float)) else 0
+        print(f"    {'-'*70}")
+        print(f"    {'IF market runs hot yr 3':<26}{irr*100:>7.1f}%"
+              f"{'$' + format(int(v['profit'] or 0), ','):>12}{(v['em'] or 0):>6.2f}x"
+              f"{'-':>11}  cap {hot_cap*100:.2f}% - UPSIDE ONLY, never the plan")
 
     # Plain-language readout
     best_irr = max((r for r in results if r[1] is not None), key=lambda r: r[1], default=None)

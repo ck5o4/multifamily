@@ -30,6 +30,12 @@ NFHL = ("https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/
 SFHA_ZONES = {"A", "AE", "AH", "AO", "AR", "A99", "V", "VE"}
 
 
+class FloodLookupError(RuntimeError):
+    """A flood lookup failed to produce a determination (network, geocode, or
+    malformed response). Callers catch this and record the gate as UNKNOWN -
+    never as 'no flood risk'."""
+
+
 def fetch_json(url, timeout=45):
     # curl -4, for the same reason rates.py uses it: hazards.fema.gov resolves an
     # IPv6 address that resets the connection from some networks, and Python's
@@ -41,20 +47,26 @@ def fetch_json(url, timeout=45):
         ["curl", "-4", "-sL", "--max-time", str(timeout), "--retry", "2",
          "-A", "deal-intake/1.0", url],
         capture_output=True, text=True)
+    # Raise a CATCHABLE exception, not SystemExit. SystemExit derives from
+    # BaseException, so the `except Exception` guards in intake.py/icmemo.py were
+    # dead code and every flood-service failure killed the whole run - discarding
+    # a completed Monte Carlo in icmemo's case. That is the exact "a tool that
+    # always raises blocks the whole box" failure 8b7ce5e set out to fix, moved
+    # from urllib to curl. (sweep 2026-08-24)
     if proc.returncode != 0:
-        raise SystemExit(f"Flood service unreachable: curl exit {proc.returncode}")
+        raise FloodLookupError(f"Flood service unreachable: curl exit {proc.returncode}")
     try:
         return json.loads(proc.stdout)
     except ValueError:
-        raise SystemExit(f"Flood service returned non-JSON: {proc.stdout[:200]}")
+        raise FloodLookupError(f"Flood service returned non-JSON: {proc.stdout[:200]}")
 
 
 def geocode(address):
     data = fetch_json(GEOCODER.format(addr=urllib.parse.quote(address)))
     matches = data.get("result", {}).get("addressMatches", [])
     if not matches:
-        raise SystemExit(f"Census geocoder found no match for: {address}\n"
-                         "Try adding the ZIP, or check the street spelling.")
+        raise FloodLookupError(f"Census geocoder found no match for: {address}\n"
+                               "Try adding the ZIP, or check the street spelling.")
     m = matches[0]
     c = m["coordinates"]
     return c["x"], c["y"], m.get("matchedAddress", address)
@@ -63,16 +75,24 @@ def geocode(address):
 def flood_zones(lon, lat):
     data = fetch_json(NFHL.format(lon=lon, lat=lat))
     if "error" in data:
-        raise SystemExit(f"FEMA NFHL error: {data['error']}")
+        raise FloodLookupError(f"FEMA NFHL error: {data['error']}")
+    # A valid JSON envelope with no "features" key at all is a malformed/failed
+    # response, not evidence of no flood risk - treat it as a failure, not as
+    # an empty (=> unmapped => not-SFHA) result. (sweep 2026-08-24)
+    if "features" not in data:
+        raise FloodLookupError(f"FEMA NFHL returned no 'features' key: {str(data)[:200]}")
     return [f["attributes"] for f in data.get("features", [])]
 
 
 def interpret(zones):
     """Return (zone_string, sfha_bool, note)."""
     if not zones:
-        return ("UNMAPPED", False,
-                "No NFHL polygon here - area not mapped or data gap. "
-                "Verify at msc.fema.gov before closing.")
+        # sfha is UNKNOWN here, not False. Returning False let icmemo's
+        # `if fres["sfha"]` gate drop the flood line entirely and assert
+        # "SFHA: No" on an unmapped parcel. (sweep 2026-08-24)
+        return ("UNMAPPED", None,
+                "No NFHL polygon here - area not mapped or data gap. Flood risk "
+                "UNDETERMINED (not 'no'). Verify at msc.fema.gov before closing.")
     # A boundary parcel can intersect several polygons. If ANY is SFHA, the
     # lender treats it as SFHA - report the worst one, never the first one.
     def is_sfha(p):
@@ -103,10 +123,17 @@ def interpret(zones):
          else min(zones, key=_nonsfha_rank))
     zone = z.get("FLD_ZONE", "?")
     subty = (z.get("ZONE_SUBTY") or "").strip()
-    if zone == "D":
-        return ("D", False,
-                "Zone D = flood risk UNDETERMINED, not minimal. Lenders can "
-                "still require insurance; order a flood determination.")
+    # Zone D and the FEMA "not studied" domain values mean risk UNDETERMINED,
+    # not minimal. Any FLD_ZONE we don't recognise falls here too rather than
+    # dropping through to the "minimal hazard" else. sfha is None (unknown), so
+    # no consumer can read an unstudied parcel as "no flood risk". (2026-08-24)
+    _UNDETERMINED = {"D", "AREA NOT INCLUDED", "OPEN WATER"}
+    _known = SFHA_ZONES | {"X"}
+    if not sfha and (zone in _UNDETERMINED or zone not in _known):
+        label = zone if zone in _UNDETERMINED else f"{zone} (unrecognised)"
+        return (label, None,
+                f"FEMA zone {zone!r} = flood risk UNDETERMINED, not minimal. "
+                "Lenders can still require insurance; order a flood determination.")
     if sfha and zone.startswith("V"):
         note = ("SFHA, coastal high-hazard V zone with WAVE ACTION - lender "
                 "will REQUIRE flood insurance at V-zone rates (well above "

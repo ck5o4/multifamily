@@ -89,10 +89,19 @@ def solve_price(model_path, spec, target_irr, asking, fixed, location,
             lo = mid
         else:
             hi = mid
-        if abs(irr_mid - target_irr) < tol:
+        # Stop only once a clearing price exists, and judge the answer we would
+        # RETURN rather than a probe we discarded (sweep 2026-08-24). This is
+        # the same defect fixed in pymodel.solve_price on 2026-08-09 that was
+        # never ported here - and solve.py is what `intake.py --solve-price`
+        # actually calls. Testing irr_mid returned a stale `best` (eden 13%:
+        # $1,423,000 when $1,559,000 clears - a $136k under-offer on the top
+        # deal) and, when it fired on iteration 0 with best still None,
+        # reported a reachable target as unreachable (covington-2nd @16%).
+        if best is not None and abs(best["irr"] - target_irr) < tol:
             break
     if best:
-        rounded = round(best["price"] / 1000) * 1000
+        # Floor, never round - see pymodel.solve_price.
+        rounded = int(best["price"] // 1000) * 1000
         if rounded != best["price"]:
             # Re-evaluate at the rounded price so the reported IRR belongs to
             # the reported price (audit 2026-08-05 — pymodel already does this).

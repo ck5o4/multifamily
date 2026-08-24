@@ -300,6 +300,21 @@ def main():
         w.set(spec["scalars"][price_key], args.price)
         parsed_keys.add(price_key)
 
+    # The rent roll knows its own physical vacancy; the model must not be told
+    # a rosier one without saying so (sweep 2026-08-24).
+    _implied_vac = next((n for n in all_notes if "IMPLIED PHYSICAL VACANCY" in n), None)
+    if _implied_vac:
+        import re as _re
+        _m = _re.search(r"= ([\d.]+)%", _implied_vac)
+        _iv = float(_m.group(1)) / 100 if _m else None
+        _uv = defaults.resolve(args.model).get("vacancy") if hasattr(defaults, "resolve") else None
+        if _iv is not None:
+            print(f"\n  WARNING: this rent roll implies {_iv:.1%} physical vacancy.")
+            print("    The vacant units' rents were imputed, so they sit in gross potential "
+                  "income.")
+            print("    If the vacancy input below is materially lower, NOI is overstated. "
+                  "Set it with --set vacancy=<frac>.")
+
     if t12_lines and units:
         for key in ("payroll", "ga", "marketing", "rm", "contract_services",
                     "utilities", "other", "insurance"):
@@ -356,19 +371,28 @@ def main():
         print("\n  FLOOD ZONE CHECK")
         try:
             fres = _flood.lookup(args.address)
+            _sfha = fres["sfha"]
+            _sfha_str = ("YES - flood insurance required" if _sfha is True
+                         else "UNDETERMINED - not confirmed clear" if _sfha is None
+                         else "no")
             print(f"    Address : {fres['address']}")
             print(f"    Zone    : {fres['zone']}")
-            print(f"    SFHA    : {'YES - flood insurance required' if fres['sfha'] else 'no'}")
+            print(f"    SFHA    : {_sfha_str}")
             print(f"    Note    : {fres['note']}")
-            if fres["sfha"]:
+            if _sfha is True:
                 print()
                 print("    *** WARNING: SFHA PROPERTY ***")
                 print("    Lender will require flood insurance. The template insurance")
                 print("    default does NOT include flood coverage. This screen is")
                 print("    UNRELIABLE until you have a bindable flood quote in hand.")
                 print("    Do not advance this deal without a flood insurance quote.")
+            elif _sfha is None:
+                print()
+                print("    *** WARNING: FLOOD ZONE UNDETERMINED ***")
+                print("    Unmapped/unstudied parcel or a failed lookup. Do NOT record")
+                print("    this as 'no flood risk' - order a flood determination.")
         except Exception as e:
-            print(f"    flood check unavailable: {e}")
+            print(f"    flood check unavailable - status UNKNOWN, not clear: {e}")
 
     if not args.recalc:
         print("  Not recalculated. Formula cells hold no cached values until you recalc.")

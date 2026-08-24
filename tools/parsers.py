@@ -352,8 +352,19 @@ def parse_rent_roll(path, sheet=None, mode="rent"):
         for r in vacant:
             k = _key(r)
             r["rent"] = median(meds[k]) if k in meds else 0.0
-        notes.append(f"{int(round(sum(r['count'] for r in vacant)))} vacant/zero-rent rows: "
+        n_vac = int(round(sum(r["count"] for r in vacant)))
+        n_tot = int(round(sum(r["count"] for r in best_recs)))
+        notes.append(f"{n_vac} vacant/zero-rent rows: "
                      "counted as units, rent imputed from type median")
+        # Surface the roll's OWN physical vacancy. The imputed rents put these
+        # units into GPR, so unless the vacancy input is raised to match, the
+        # model prices them as if they were let (sweep 2026-08-24). On the real
+        # baker-trails OM roll that is 4 of 12 units - 33.3% against a 7%
+        # template default, roughly $30k/yr of NOI on a $750k asset.
+        if n_tot:
+            notes.append(f"IMPLIED PHYSICAL VACANCY {n_vac}/{n_tot} = {n_vac / n_tot:.1%} "
+                         "from this rent roll - compare against the vacancy input before "
+                         "trusting NOI")
 
     buckets, unresolved = {}, 0
     for rec in best_recs:
@@ -453,6 +464,7 @@ def _t12_from_rows(rows):
     matched = 0
     seen = {}      # normalized label -> last annual (duplicate-label guard)
     unmapped = {}  # label -> dollar amount that matched no category
+    period_counts = []  # populated month columns per line (part-year detector)
 
     for ri, row in enumerate(rows):
         if hi is not None and ri <= hi:
@@ -488,6 +500,15 @@ def _t12_from_rows(rows):
             v = to_num(cells_raw[tcol])
             if v is not None:
                 annual, basis = abs(v), f"column {tcol + 1} under total header"
+                # Count the populated period cells feeding that total, so a
+                # part-year statement cannot be read as annual (sweep
+                # 2026-08-24). hwy42's 'P&L YTD 2026.xlsx' has JAN-JUN only:
+                # every expense line came back at half its annual size, with
+                # basis still reading 'under total header'.
+                _periods = sum(1 for c in cells_raw[1:tcol]
+                               if (to_num(c) or 0) != 0)
+                if 0 < _periods < 12:
+                    period_counts.append(_periods)
         if annual is None:
             nums = [abs(n) for n in (to_num(c) for c in cells[1:]) if n is not None]
             if not nums:
@@ -518,6 +539,20 @@ def _t12_from_rows(rows):
     if unmapped:
         lnotes.append("lines with dollar amounts that matched no expense category (NOT captured): "
                       + "; ".join(f"{l} (${a:,.0f})" for l, a in unmapped.items()))
+    # If most lines agree that fewer than 12 periods are populated, this is a
+    # part-year statement being read as annual. Say so loudly and label the
+    # basis; never silently annualize (the run rate of a half year is not a
+    # T-12, and which half it is matters for insurance and taxes).
+    if period_counts and len(period_counts) >= max(2, matched // 2):
+        modal = max(set(period_counts), key=period_counts.count)
+        if period_counts.count(modal) >= len(period_counts) / 2 and modal < 12:
+            lnotes.append(
+                f"PART-YEAR STATEMENT: only {modal} of 12 period columns are populated, so "
+                f"every figure below is a {modal}-month total, NOT annual. Multiply by "
+                f"{12 / modal:.2f} only if the missing months are comparable, or supply a "
+                f"full T-12 with --t12.")
+            for k in out:
+                out[k]["basis"] += f" [{modal}-month partial year, NOT annual]"
     return out, matched, lnotes, tcol is not None
 
 

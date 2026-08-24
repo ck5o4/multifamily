@@ -17,7 +17,8 @@
     "plan": null,
     "actuals": [],
     "payback": [],
-    "location": "gonzales"
+    "location": "gonzales",
+    "rentcast": "41063-cannon-rd"
   },
   "baker-trails": {
     "stage": "watching",
@@ -77,7 +78,9 @@
     "plan": null,
     "actuals": [],
     "payback": [],
-    "location": "baker"
+    "location": "baker",
+    "year_built": 1984,
+    "rentcast": "5087-baker-blvd"
   },
   "covington-2nd": {
     "stage": "dead",
@@ -102,7 +105,8 @@
     "plan": null,
     "actuals": [],
     "payback": [],
-    "location": "covington"
+    "location": "covington",
+    "rentcast": "19427-2nd-street"
   },
   "weber-city-mhp": {
     "stage": "dead",
@@ -182,12 +186,19 @@
         "date": "2026-08-09",
         "stage": "underwriting",
         "note": "PRIORITY 1 of 2 (2026-08-09, Anthony directive: 300k capital -> top two only): best verified economics in pipeline - seller actuals in hand, 8.44pct cap at ask, pursue basis 1.25-1.27M w/ seller carry = 27.5pct honest deterministic base, stress grid all-pass, motivated twice-flipped seller (1.925M->1.699M), engaged broker (Vercher). GATE: bindable habitational insurance <=~1600/u (Apartment Guard follow-up drafted). Critical path: send Vercher reply -> tour -> carry conversation."
+      },
+      {
+        "date": "2026-08-24",
+        "stage": "underwriting",
+        "note": "SWEEP 2026-08-24 - PURSUE UNCHANGED, but the ladder labels were misleading. Same two MC fixes as treme (growth recentering + vintage capex, eff age 13 for the 2017-19 homes). At ask 1.699M the deal beats the index only 33pct - but Eden was never a buy at ask. At the actual pursue basis 1.25-1.27M with seller carry it beats the index 60pct and P(>=13pct) is 54-56pct, so the carry strategy is vindicated; it is the '13pct = minimum to pursue' RUNG (1.559M, beats index 39pct) that fails the house rule. Read the 22pct rung (1.251M) as the real pursue price - which is what the strategy copy already says. Solver fix also moved the 13pct rung from a stale 1.423M (solve.py) to 1.559M: the old number was a 136k under-offer. Marketing at 0/unit remains an open honest gap (see sweep report, deferred)."
       }
     ],
     "plan": null,
     "actuals": [],
     "payback": [],
-    "location": "denham springs"
+    "location": "denham springs",
+    "effective_age": 13,
+    "effective_age_basis": "15 of 18 homes built 2017-19 (~age 8), 3 old (~age 40); unit-weighted"
   },
   "hwy42-mhp": {
     "stage": "dead",
@@ -247,12 +258,19 @@
         "date": "2026-08-09",
         "stage": "underwriting",
         "note": "PRIORITY 2 of 2 (2026-08-09): the only deal that fits 300k capital with NO carry/partner (equity 267k at ask, 236-297k in offer zone). Canonical ladder 714k/664k/580k vs 849k ask. All-estimated basis - Hernandez docs (rent roll, T-12, unit mix, reno scope, STR status) decide it. Fresh listing (8 DOM) = discount appetite unknown; if seller anchors at ask, patience."
+      },
+      {
+        "date": "2026-08-24",
+        "stage": "underwriting",
+        "note": "SWEEP 2026-08-24 - HOUSE RULE NOW FAILS AT EVERY LADDER PRICE. Two verified engine bugs were inflating this deal. (1) MC never recentered rent/expense growth on our own underwriting: it drew 3.2pct rent growth against our 2.0pct, so MC P50 sat ABOVE the deterministic IRR on all 7 deals. (2) Vintage capex was inert in board+icmemo (year_built never passed), so a 1970 building was priced with a 350/unit reserve. Corrected, beats-index = 30pct at 714k / 34pct at 663k / 44pct at 579k - all below the 46pct at which Baker was PASSED. Holds even assuming a gut renovation (eff age 20: 31-45pct), so it does not hinge on the 'most units renovated' claim. Ladder itself also corrected by a solver fix (stale-best break): 16pct rung is 663k not 664k, 22pct 579k not 580k. DECISION IS ANTHONY'S - stage left at underwriting, not marked dead. The numbers say pass on the estimated basis; only Hernandez's real unit mix (2BR units) + T-12 could rebuild it. Recommend NOT offering until those arrive."
       }
     ],
     "plan": null,
     "actuals": [],
     "payback": [],
-    "location": "new orleans"
+    "location": "new orleans",
+    "year_built": 1970,
+    "rentcast": "1429-governor-nicholls-st"
   },
   "central-city-2nd": {
     "stage": "dead",

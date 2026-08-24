@@ -21,6 +21,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 ROOT = Path(__file__).resolve().parent.parent
 INTAKE = ROOT / "deal-intake"
+
+
+def _vintage(name):
+    """monte_carlo kwargs carrying the deal's vintage, from portfolio/deals.json.
+
+    Returns {} when the vintage is unknown - the memo then says so explicitly
+    rather than quoting an optimistic tail. Never guess a vintage.
+    """
+    try:
+        rec = json.loads((ROOT / "portfolio" / "deals.json").read_text()).get(name, {})
+    except Exception:
+        return {}
+    if rec.get("effective_age") is not None:
+        return {"effective_age_override": rec["effective_age"]}
+    if rec.get("year_built") is not None:
+        return {"year_built": rec["year_built"]}
+    return {}
 DEALS_PATH = ROOT / "portfolio" / "deals.json"
 TODAY = date.today().isoformat()
 
@@ -319,7 +336,7 @@ def main():
     # Monte Carlo
     h2("MONTE CARLO SUMMARY")
     try:
-        mc = pymodel.monte_carlo(inputs, deal_name=deal)
+        mc = pymodel.monte_carlo(inputs, deal_name=deal, **_vintage(deal))
         if mc["p10"] is not None:
             # the call auto-scales - report the actual n, not a hardcoded 2,000
             p(f"- **Draws:** {mc.get('n_draws', mc.get('n_valid', 0)):,} (auto-scaled)")
@@ -329,6 +346,21 @@ def main():
             p(f"- **P(IRR ≥ 13%):** {mc['p_above_13']*100:.1f}%  ({mc['n_valid']:,} valid runs)")
             if mc.get("vacancy_note"):
                 p(f"- {mc['vacancy_note']}")
+            if mc.get("growth_note"):
+                p(f"- {mc['growth_note']}")
+            _v = _vintage(deal)
+            if _v:
+                if "year_built" in _v:
+                    _vdesc = f"year built {_v['year_built']}"
+                else:
+                    _vdesc = f"effective age {_v['effective_age_override']} yr"
+                p(f"- Vintage capex ACTIVE ({_vdesc}) - the age-based roof/HVAC/"
+                  f"systems hazard is priced into the left tail")
+            else:
+                p("- **Vintage capex INACTIVE** - no year_built/effective_age on "
+                  "record for this deal, so the P10 above is OPTIMISTIC (flat "
+                  "reserve only). Add one to portfolio/deals.json before quoting "
+                  "this tail.")
         else:
             p("Monte Carlo returned no valid runs.")
     except Exception as e:
@@ -383,17 +415,26 @@ def main():
         try:
             import flood as _flood
             fres = _flood.lookup(args.address)
+            _sfha = fres["sfha"]
+            _sfha_str = ("YES — lender requires flood insurance" if _sfha is True
+                         else "UNDETERMINED — not confirmed either way" if _sfha is None
+                         else "No")
             p(f"- **Address (matched):** {fres['address']}")
             p(f"- **FEMA Zone:** {fres['zone']}")
-            p(f"- **SFHA:** {'YES — lender requires flood insurance' if fres['sfha'] else 'No'}")
+            p(f"- **SFHA:** {_sfha_str}")
             p(f"- **Note:** {fres['note']}")
-            if fres["sfha"]:
+            if _sfha is True:
                 blank()
                 p("**⚠ WARNING:** SFHA property. Flood insurance is lender-required and not")
                 p("included in the template default. This screen is unreliable without a")
                 p("bindable flood insurance quote in hand.")
+            elif _sfha is None:
+                blank()
+                p("**⚠ WARNING:** Flood zone UNDETERMINED (unmapped/unstudied parcel or a")
+                p("failed lookup). Do NOT record this as 'no flood risk' — order a flood")
+                p("determination before any offer.")
         except Exception as e:
-            p(f"flood check unavailable: {e}")
+            p(f"flood check unavailable — treat flood status as UNKNOWN, not clear: {e}")
         blank()
 
     # Parcel tax reconciliation
@@ -464,11 +505,15 @@ def main():
         try:
             import flood as _flood
             fres = _flood.lookup(args.address)
-            if fres["sfha"]:
+            if fres["sfha"] is True:
                 gaps.append("❌ SFHA flood zone — flood insurance quote required "
                             "(lender-mandatory; not in template default)")
+            elif fres["sfha"] is None:
+                gaps.append(f"⚠ Flood zone UNDETERMINED ({fres['zone']}) — order a flood "
+                            "determination; do not record as clear")
         except Exception:
-            gaps.append("⚠ Flood zone check failed — run flood.py before offer")
+            gaps.append("⚠ Flood zone check failed — run flood.py before offer "
+                        "(status UNKNOWN, not clear)")
 
     for gap in gaps:
         p(f"- {gap}")

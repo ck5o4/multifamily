@@ -138,6 +138,13 @@
     font-weight: 600; font-size: 1.05rem; white-space: nowrap;
   }
   .pricebox .v.muted { color: var(--ink-3); font-weight: 400; font-size: 0.92rem; white-space: normal; }
+  /* House-rule verdict on each price rung (sweep 2026-08-24). */
+  .pricebox .v small {
+    display: block; font-family: var(--sans, inherit); font-weight: 500;
+    font-size: 0.74rem; white-space: normal; margin-top: 0.15rem;
+  }
+  .pricebox .v small.ok   { color: var(--live); }
+  .pricebox .v small.warn { color: var(--watch); }
   .pricebox .strategy {
     background: var(--accent-tint);
     padding: 0.8rem 1rem;

@@ -75,6 +75,15 @@ def _irr(cash_flows, guess=0.1, max_iter=200, tol=1e-8):
     cash_flows: list starting at year 0 (negative = outflow).
     Returns None if not found.
     """
+    # An IRR exists only if the flows change sign. Without this guard the
+    # solver "converges" on garbage: all-zeros returned the bisection bracket
+    # midpoint (450.05%) and [0,...,0,X] passed the relative-NPV convergence
+    # test at the Newton clamp (5000%). That is reachable in one step from the
+    # documented lp_pct=1.0 structure (investor funds all equity -> gp_capital
+    # and gp_profit are both 0), which printed "GP IRR: 450.05%". (2026-08-24)
+    if not any(cf < 0 for cf in cash_flows) or not any(cf > 0 for cf in cash_flows):
+        return None
+
     def _npv(r):
         try:
             return sum(cf / (1 + r) ** t for t, cf in enumerate(cash_flows))
@@ -328,9 +337,13 @@ def run(inputs: dict) -> dict:
             interest_pmt[yr] = bb * yr_rate
             principal_pmt[yr] = 0.0
             end_bal[yr] = bb
-        elif bb <= 1e-9:
+        elif bb <= 0.01:
             # Loan already retired: no phantom payments on a zero balance
             # (sweep 2026-08-09: amort_years < hold_years charged full DS forever).
+            # Dollar-scaled epsilon, not 1e-9: _fv_annuity leaves floating-point
+            # residue at the final amortization year that is routinely larger
+            # than 1e-9, so the 1e-9 guard missed it and the NEXT year charged a
+            # phantom month on a repaid loan (cannon $20,729 at amort+1). (2026-08-24)
             interest_pmt[yr] = 0.0
             principal_pmt[yr] = 0.0
             end_bal[yr] = 0.0
@@ -341,7 +354,7 @@ def run(inputs: dict) -> dict:
             else:
                 eb = _fv_annuity(rate / 12, 12, monthly_pmt, bb)
             end_bal[yr] = eb
-            if eb <= 1e-9:
+            if eb <= 0.01:
                 # Retires mid-year: charge only the payments actually made,
                 # not 12 (12*pmt - bb overstates interest on the short year).
                 r_m = yr_rate / 12
@@ -842,6 +855,18 @@ def solve_price(inputs: dict, target_irr: float, tol: float = 0.0001,
               "the solve. Pass location for per-price reassessment. "
               "(This exact omission skewed live-deal ladders on 2026-08-02/03.)",
               file=sys.stderr)
+    else:
+        # A location that latax cannot resolve is just as biasing as no location
+        # at all, but used to drop through silently to frozen taxes - the very
+        # bias the warning above exists to prevent. Probe once and say so.
+        # (sweep 2026-08-24; matches solve.py's guard.)
+        _probe, _exp = latax.estimate_tax(base.get("price", 0) or 1, location,
+                                          commercial_share)
+        if _probe is None:
+            print(f"WARNING [solve_price]: location {location!r} did not resolve "
+                  f"({_exp}) - property taxes stay FROZEN across all trial prices, "
+                  "biasing the solve optimistic. Fix the town/parish name.",
+                  file=sys.stderr)
 
     def _irr_at(price):
         p = dict(base)
@@ -883,11 +908,21 @@ def solve_price(inputs: dict, target_irr: float, tol: float = 0.0001,
         # Only stop on tolerance once a clearing price exists: a midpoint that
         # lands within tol *below* target would otherwise end the search with
         # best=None and report a reachable target as unreachable (sweep 2026-08-09).
-        if best is not None and abs(irr_mid - target_irr) < tol:
+        #
+        # Test the accuracy of the answer we would RETURN, not of a probe we
+        # discarded (sweep 2026-08-24). Testing irr_mid let a near-miss midpoint
+        # end the search while `best` still held a far lower price from an
+        # earlier iteration - hwy42 @16% reported $2,269,000 (16.54%) when
+        # $2,298,000 clears it, a $30k understatement on a live board rung.
+        if best is not None and abs(best["irr"] - target_irr) < tol:
             break
 
     if best:
-        best["price"] = round(best["price"] / 1000) * 1000
+        # Floor, never round: best["price"] is by construction the highest price
+        # that clears the target, so rounding UP crosses the boundary and the
+        # reported price no longer clears its own label (treme 16% reported
+        # $664,000 @ 15.997%). Flooring keeps price and label consistent.
+        best["price"] = int(best["price"] // 1000) * 1000
         best["irr"] = _irr_at(best["price"])
     return best
 
@@ -1160,14 +1195,33 @@ def _load_rentcast_mult(deal_name, base_rent: float) -> tuple:
     # any-token matching let 'church-street-8plex' consume the eden-church
     # cache of a different property (sweep 2026-08-09). Multiple files per
     # property (one per unit spec) are averaged, not first-glob-wins.
-    slug_parts = [p.lower() for p in deal_name.replace("-", " ").split() if len(p) > 3]
-    if not slug_parts:
-        return None
+    # An explicit hint in deals.json ("rentcast": "<filename substring>") wins.
+    # Cache files are named for the street ADDRESS, deal slugs for the
+    # neighbourhood/property, so slug-token matching silently missed live deals:
+    # 'treme-gov-nicholls' shares no >3-char token with
+    # '1429-governor-nicholls-st...' ('treme' is absent), so its paid cache was
+    # ignored and the MC ran with no rent-level uncertainty. (sweep 2026-08-24)
+    hint = None
+    try:
+        _rec = _json.loads((root / "portfolio" / "deals.json").read_text()).get(deal_name, {})
+        hint = _rec.get("rentcast")
+    except Exception:
+        hint = None
+
     matches = []
-    for c in sorted(rentcast_dir.glob("*.json")):
-        name_lower = c.stem.lower().replace("-", " ").replace("_", " ")
-        if all(part in name_lower for part in slug_parts):
-            matches.append(c)
+    if hint:
+        for c in sorted(rentcast_dir.glob("*.json")):
+            if hint.lower() in c.stem.lower():
+                matches.append(c)
+
+    if not matches:
+        slug_parts = [p.lower() for p in deal_name.replace("-", " ").split() if len(p) > 3]
+        if not slug_parts:
+            return None
+        for c in sorted(rentcast_dir.glob("*.json")):
+            name_lower = c.stem.lower().replace("-", " ").replace("_", " ")
+            if all(part in name_lower for part in slug_parts):
+                matches.append(c)
 
     if not matches:
         return None
@@ -1300,6 +1354,34 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
     vacancy_note = (f"MC vacancy centered on underwriting {_deal_loss:.1%} "
                     f"(raw process mean {_proc_mean:.1%}, shift {_vac_shift:+.1%})")
 
+    # Recenter rent growth and expense growth on the deal's own underwriting
+    # (sweep 2026-08-24), exactly as vacancy is recentered above.
+    #
+    # The 2026-08-09 sweep recentered vacancy but left these two on the fitted
+    # FRED marginals: rent growth P50 3.215% against a 2.0% underwrite, expense
+    # growth P50 2.147% against 2.5%. Both errors point the same way, so MC P50
+    # came out ABOVE the deterministic IRR on all seven deals - eden 12.18% vs
+    # det 9.87%, treme 8.12% vs det 6.57% - and every quoted P(IRR>=13%) and
+    # "beats index" figure inherited that optimism. The eden record of
+    # 2026-08-09 named this as "the remaining known MC optimism"; this closes it.
+    #
+    # The fitted SPREAD is what the history is evidence for; the CENTER is the
+    # deal's own assumption. House rule: the deterministic case is authoritative
+    # and MC shows dispersion around it, never a rosier center of its own.
+    def _recenter(p10, p50, p90, target, label):
+        if target is None:
+            return p10, p50, p90, ""
+        d = target - p50
+        note = (f"MC {label} centered on underwriting {target:.2%} "
+                f"(fitted P50 {p50:.2%}, shift {d:+.2%}; fitted spread kept)")
+        return p10 + d, p50 + d, p90 + d, note
+
+    rg_p10, rg_p50, rg_p90, rg_note = _recenter(
+        rg_p10, rg_p50, rg_p90, inputs.get("rent_growth"), "rent growth")
+    eg_p10, eg_p50, eg_p90, eg_note = _recenter(
+        eg_p10, eg_p50, eg_p90, inputs.get("expense_growth"), "expense growth")
+    growth_note = "; ".join(n for n in (rg_note, eg_note) if n)
+
     # Weighted avg rent for RentCast lookup
     total_units = sum(g["units"] for g in inputs["unit_mix"])
     wt_rent = (sum(g["units"] * g["rent"] for g in inputs["unit_mix"]) / total_units
@@ -1308,11 +1390,17 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
 
     # --- Rent-level multiplier from RentCast ---
     rentcast_info = _load_rentcast_mult(deal_name, wt_rent)
-    rent_level_note = ""
     if rentcast_info:
         rl_lo, rl_mode, rl_hi, rent_level_note = rentcast_info
     else:
         rl_lo = rl_mode = rl_hi = None
+        # Say so, always. A silent empty note printed nothing, so a deal whose
+        # cache simply failed to match looked identical to one with no rent-level
+        # risk - and its P10 was optimistic for it. (sweep 2026-08-24)
+        rent_level_note = (
+            f"no RentCast cache matched '{deal_name}' - rent-level uncertainty NOT "
+            "modelled, so the P10 is optimistic. Add a \"rentcast\" filename hint to "
+            "this deal in portfolio/deals.json if a cache exists.")
 
     # --- FIX 2: Compute effective_age for vintage capex ---
     _current_year = 2026
@@ -1505,6 +1593,7 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
             "se_p10": float("nan"), "irr_samples": [],
             "rent_level_note": rent_level_note,
             "vacancy_note": vacancy_note,
+            "growth_note": growth_note,
             "params_provenance": params_provenance,
         }
 
@@ -1523,6 +1612,7 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         "n_failed": n_failed,
         "rent_level_note": rent_level_note,
         "vacancy_note": vacancy_note,
+        "growth_note": growth_note,
         "params_provenance": params_provenance,
     }
 
@@ -1721,6 +1811,8 @@ def main():
         print(f"  Rent-level MC:  {quick_mc['rent_level_note']}")
     if quick_mc.get("vacancy_note"):
         print(f"  Vacancy MC:     {quick_mc['vacancy_note']}")
+    if quick_mc.get("growth_note"):
+        print(f"  Growth MC:      {quick_mc['growth_note']}")
 
     if args.solve:
         target = args.solve
