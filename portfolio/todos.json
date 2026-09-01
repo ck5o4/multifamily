@@ -125,7 +125,7 @@
       "text": "Reconnect the Gmail connector at claude.ai/customize/connectors",
       "owner": "anthony",
       "status": "done",
-      "why": "Done. Connector is live and the twice-daily sweep has been drafting digests since 2026-08-09.",
+      "why": "Done. Connector is live and the twice-daily sweep has been drafting digests since 2026-08-09. OPERATIONAL NOTE 2026-09-01 (does not reopen this item): the connector is still CONNECTED at the account level, but ListConnectors from the scheduled daily-scan session reports Gmail with enabledInChat=false - its tools are NOT loaded into this session. So the daily scan structurally cannot read drafts or Sent, no matter how many times it is asked to. This is why every email item stays unverifiable here and must never be marked done by the scan. If the twice-daily email sweep runs in a different session where Gmail IS enabled, that session is the only one that can verify them. To let the daily scan see email too, enable the Gmail connector for that scheduled session in its connector settings.",
       "added": "2026-08-09"
     },
     {
