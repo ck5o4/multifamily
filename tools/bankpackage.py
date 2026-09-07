@@ -66,7 +66,12 @@ def gather(deal, force=False):
     deal_dir = ROOT / "deal-intake" / deal
     _pf = ROOT / "portfolio" / "deals.json"
     _rec = json.loads(_pf.read_text()).get(deal, {}) if _pf.exists() else {}
-    rr_status, t12_missing, ins_unquoted = "actual", False, False
+    # Fail CLOSED. These defaults are the answers that let the package through,
+    # so an exception must never be what produces them (2026-09-07: the previous
+    # `except Exception: pass` left "rent roll actual / T-12 present / insurance
+    # quoted" standing after any failure, which is the flood.py degrade-
+    # optimistically bug wearing a different hat, in the lender's document).
+    rr_status, t12_missing, ins_unquoted = "missing", True, True
     if deal_dir.exists():
         try:
             import icmemo as _ic
@@ -74,9 +79,10 @@ def gather(deal, force=False):
             rr_status = rr_status or "missing"
             t12_missing = _ic._detect_t12(deal_dir) is None
             _hist = " ".join(h.get("note", "") for h in _rec.get("history", []))
-            ins_unquoted = not _ic._insurance_noted(deal_dir, _hist)
-        except Exception:
-            pass
+            ins_unquoted = not _ic._insurance_noted(deal_dir, _hist, _rec)[0]
+        except Exception as exc:
+            print(f"WARNING: diligence-gap check failed ({type(exc).__name__}: {exc}) — "
+                  "treating every gate as UNMET rather than clear.", file=sys.stderr)
     dd_gaps = []
     if rr_status in ("estimated", "from_listing"):
         dd_gaps.append(f"rent roll is {rr_status.upper()} - the rents shown are NOT a "

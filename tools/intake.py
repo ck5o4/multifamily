@@ -10,6 +10,7 @@ Master workbooks are never modified. Each run writes deal-intake/<deal>/<deal>_<
 """
 
 import argparse
+import atexit
 import re
 import sys
 from pathlib import Path
@@ -279,9 +280,18 @@ def main():
         _print_notes(all_notes)
         return
 
+    # Build in a scratch file and move it into place only once every write has
+    # succeeded. Cloning the blank master straight onto `dest` means any
+    # exception between the clone and w.save() leaves the deal carrying the
+    # master's demo numbers — which is exactly what happened for two weeks
+    # (see the vacancy-note TypeError above): the workbook the board, IC memo
+    # and bank package all read was replaced by the $600,000 demo deal.
     dest = deal_dir / f"{args.deal}_{args.model}.xlsx"
-    clone_model(ROOT / spec["file"], dest)
-    w = ModelWriter(dest, spec)
+    # Keep the .xlsx extension — openpyxl validates the format from it.
+    staging = dest.with_name(f".{dest.stem}.staging.xlsx")
+    clone_model(ROOT / spec["file"], staging)
+    atexit.register(lambda: staging.exists() and staging.unlink())
+    w = ModelWriter(staging, spec)
 
     if groups:
         dropped = write_unit_mix(w, spec, groups) if args.model == "dev" else write_rent_roll(w, spec, groups)
@@ -307,7 +317,13 @@ def main():
         import re as _re
         _m = _re.search(r"= ([\d.]+)%", _implied_vac)
         _iv = float(_m.group(1)) / 100 if _m else None
-        _uv = defaults.resolve(args.model).get("vacancy") if hasattr(defaults, "resolve") else None
+        # 2026-09-07: this line read `defaults.resolve(args.model).get(...)`
+        # guarded by `hasattr(defaults, "resolve")`, which is always True.
+        # resolve() takes four arguments, so every --apply run on a roll with a
+        # vacant unit raised TypeError here — AFTER clone_model() had already
+        # overwritten the deal workbook with the blank master and BEFORE
+        # w.save(). baker-trails went from $750,000 / 9x2BR+3x3BR to the demo
+        # $600,000 / 4x1BR+4x2BR on every attempt. The value was never used.
         if _iv is not None:
             print(f"\n  WARNING: this rent roll implies {_iv:.1%} physical vacancy.")
             print("    The vacant units' rents were imputed, so they sit in gross potential "
@@ -365,6 +381,7 @@ def main():
             w.set(spec["scalars"][k], v)
 
     w.save()
+    staging.replace(dest)          # atomic: the old workbook survives any failure above
     print(f"\n  WROTE {len(w.writes)} input cells -> {dest}")
 
     if args.address:

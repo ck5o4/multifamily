@@ -38,6 +38,12 @@ PARISHES = {
     "west baton rouge":     "121",
     "iberville":            "047",
     "st. james":            "093",
+    # 2026-09-07: these two were missing while the docstring claimed parity
+    # with latax. St. Bernard is in the buy box and is the parish the
+    # 2026-08-17 three-parish model settled INTO it (Chalmette clears 13% at
+    # $388K) — the one parish that needed defending could not be screened.
+    "st. bernard":          "087",
+    "plaquemines":          "075",
 }
 
 BLS_URL = "https://api.bls.gov/publicAPI/v2/timeseries/data/"

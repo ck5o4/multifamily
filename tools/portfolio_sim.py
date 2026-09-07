@@ -195,12 +195,21 @@ def simulate(scenario):
     # -----------------------------------------------------------------------
     # Step 3: Walk year by year — track balance, flag gaps, build port_cf
     # -----------------------------------------------------------------------
-    # Investor external cash flows:
-    #   port_cf[0] = -starting_equity  (write the cheque once)
-    #   port_cf[yr] += distributions from deals + savings  (real returns)
-    #   port_cf[yr] -= gap shortfall if additional capital needed  (honest IRR)
+    # Investor external cash flows, on a CAPITAL-CALLED convention:
+    #   port_cf[yr] -= equity deployed to buy a deal that year (every year,
+    #                  year 0 included)
+    #   port_cf[yr] += distributions from deals + savings
+    #
+    # 2026-09-07: year 0 used to debit the FULL starting commitment while
+    # later years also debited their deals' full equity. Cash that sat idle
+    # after year 0 was therefore charged twice — once at t0 and again when it
+    # bought something. On baker-then-fourplex ($300,000 cheque, $138,472
+    # deployed at year 0, $179,330 at year 2) that double-charged $143,747 and
+    # turned a +$137,532 / 9.0% IRR sequence into a printed −$23,995 / −1.1%
+    # "loss", while the same panel reported "Cash returned $437,208 (1.46x)".
+    # Charging capital when it is actually called is the one convention that
+    # keeps t0 and later years consistent; uncalled cash is not an investment.
     port_cf = [0.0] * (max_year + 1)
-    port_cf[0] = -starting_equity
 
     annual_table = []
     running_bal = starting_equity  # cash in hand before year-0 deployments
@@ -231,15 +240,17 @@ def simulate(scenario):
                             "{:,.0f}".format(shortfall),
                         )
                     )
-                    if yr == 0:
-                        # Extra capital beyond the initial cheque
-                        port_cf[0] -= shortfall
-                if yr > 0:
-                    # Sweep 2026-08-09: distributions are credited to port_cf in
-                    # full when received, so a later buy funded from that cash
-                    # must be debited in full — debiting only the shortfall
-                    # double-counted every recycled dollar as investor return.
-                    port_cf[yr] -= eq
+                    # New capital beyond what is on hand. The balance has to
+                    # reflect it too, or every later year reads short by the
+                    # same amount (eden-solo printed a -$3,585 year-0 balance
+                    # against a gap it had just flagged as funded).
+                    running_bal += shortfall
+                # Sweep 2026-08-09: distributions are credited to port_cf in
+                # full when received, so a buy funded from that cash must be
+                # debited in full — debiting only the shortfall double-counted
+                # every recycled dollar as investor return. Year 0 is charged
+                # the same way (2026-09-07), so idle cash is charged once.
+                port_cf[yr] -= eq
 
                 cash_out_equity += eq
                 cumulative_deployed += eq

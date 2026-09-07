@@ -316,6 +316,431 @@ def test_beats_index_is_deterministic():
     check("beats_index returns None on no samples", board._beats_index([]) is None)
 
 
+def test_unknown_model_input_is_refused():
+    """An input key the engine does not read must raise, not be ignored.
+
+    2026-09-07: `run({**deal, "purchase_price": 1_251_000})` returned the
+    ask-price answer (eden 9.87%) instead of the $1.251M answer (32.91%) with
+    no diagnostic, because _merge_defaults did `dict(defaults); update(inputs)`
+    and nothing ever read the stray key. The repo's own history records a price
+    ladder published and retracted over this class of slip (baker-trails,
+    2026-08-03 "RED-TEAM CORRECTION"). Silence is the bug; the raise is the fix.
+    """
+    base = pymodel._load_deal("eden-church-mhp")
+    ok = pymodel.run(dict(base))
+    check("unknown-key guard: a valid input set still runs",
+          ok.get("levered_irr") is not None)
+
+    for bad_key in ("purchase_price", "totally_bogus_key_xyz"):
+        try:
+            pymodel.run({**base, bad_key: 1_251_000})
+            check(f"unknown model input {bad_key!r} raises", False,
+                  "no exception raised")
+        except ValueError as exc:
+            check(f"unknown model input {bad_key!r} raises",
+                  bad_key in str(exc), f"message did not name the key: {exc}")
+
+    # The correctly-spelled key must still change the answer.
+    at_ask = pymodel.run(dict(base))["levered_irr"]
+    at_pursue = pymodel.run({**base, "price": 1_251_000})["levered_irr"]
+    check("unknown-key guard: 'price' still overrides",
+          at_pursue > at_ask + 0.10,
+          f"ask {at_ask:.4f} vs pursue {at_pursue:.4f}")
+
+    # Keys that are legitimate but absent from the defaults table (supplied by
+    # _load_deal / callers) must NOT trip the guard.
+    for legit in ("location", "unit_mix", "price"):
+        check(f"unknown-key guard: {legit!r} is accepted",
+              legit in base and pymodel.run(dict(base)) is not None)
+
+
+def test_insurance_gate_needs_an_artifact_not_prose():
+    """Prose naming an OPEN insurance gate must not close the gate.
+
+    2026-09-07: _insurance_noted returned True on the substring "bindable".
+    Eden's history says 'GATE: bindable habitational insurance <=~1600/u
+    (Apartment Guard follow-up drafted)' — the sentence that says the quote is
+    outstanding — so the IC memo printed '✓ Insurance quote noted' and the bank
+    package labelled the seller's carried $1,060/unit premium
+    '(Louisiana-adjusted)' to a lender. One of CLAUDE.md's four offer-stage
+    hard gates, reported clear while open, on the Priority 1 deal.
+    """
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+    import icmemo
+
+    root = _Path(__file__).resolve().parent.parent
+    deals = _json.loads((root / "portfolio" / "deals.json").read_text())
+
+    for deal in ("eden-church-mhp", "treme-gov-nicholls", "baker-trails"):
+        rec = deals.get(deal, {})
+        hist = " ".join(h.get("note", "") for h in rec.get("history", []))
+        noted, _ev = icmemo._insurance_noted(root / "deal-intake" / deal, hist, rec)
+        check(f"insurance gate: {deal} has no quote artifact, so it reads UNMET",
+              noted is False, f"got {noted}")
+
+    # The exact sentence that used to close the gate.
+    with tempfile.TemporaryDirectory() as td:
+        empty = _Path(td)
+        open_gate = ("GATE: bindable habitational insurance <=~1600/u "
+                     "(Apartment Guard follow-up drafted)")
+        noted, _ = icmemo._insurance_noted(empty, open_gate, {})
+        check("insurance gate: the word 'bindable' alone does not close it",
+              noted is False, f"got {noted}")
+        for phrase in ("insurance quote requested", "flood quote pending"):
+            noted, _ = icmemo._insurance_noted(empty, phrase, {})
+            check(f"insurance gate: {phrase!r} does not close it", noted is False)
+
+        # Positive control 1: a quote document filed in the deal folder.
+        (empty / "insurance_quote_apartmentguard.pdf").write_text("x")
+        noted, ev = icmemo._insurance_noted(empty, "", {})
+        check("insurance gate: a filed quote document closes it",
+              noted is True and "insurance_quote_apartmentguard.pdf" in ev,
+              f"got {noted}, {ev!r}")
+
+    # Positive control 2: an explicit record in deals.json.
+    with tempfile.TemporaryDirectory() as td:
+        noted, ev = icmemo._insurance_noted(
+            _Path(td), "",
+            {"insurance_quote": {"carrier": "Apartment Guard",
+                                 "per_unit": 1550, "date": "2026-09-01"}})
+        check("insurance gate: a deals.json insurance_quote record closes it",
+              noted is True and "Apartment Guard" in ev, f"got {noted}, {ev!r}")
+
+
+def test_bankpackage_diligence_gates_fail_closed():
+    """A failure in the gap check must not produce a clean bank package.
+
+    2026-09-07: the check sat under `except Exception: pass` with defaults of
+    rent-roll-actual / T-12-present / insurance-quoted, so any error handed the
+    lender a package with every gate silently reported clear.
+    """
+    import bankpackage
+    import icmemo
+
+    # Break the gap check the way a real failure would, and confirm the package
+    # refuses instead of sailing through with every gate reported clear.
+    original = icmemo._insurance_noted
+
+    def _boom(*a, **k):
+        raise RuntimeError("simulated gap-check failure")
+
+    icmemo._insurance_noted = _boom
+    try:
+        raised = False
+        try:
+            bankpackage.gather("eden-church-mhp", force=False)
+        except SystemExit:
+            raised = True          # refused, which is the fail-closed behaviour
+        except Exception:
+            raised = True
+        check("bankpackage: a broken gap check refuses rather than passing clean",
+              raised, "gather() returned normally with the check broken")
+    finally:
+        icmemo._insurance_noted = original
+
+
+def test_intake_apply_end_to_end_preserves_the_workbook():
+    """`intake.py --apply` must write the deal, and never destroy it on failure.
+
+    2026-09-07: intake.py:310 called `defaults.resolve(args.model)` (4 args
+    required) behind an `hasattr(defaults, "resolve")` guard that is always
+    True, so every --apply on a roll containing a vacant unit raised TypeError.
+    clone_model() had already copied the blank master over the deal workbook,
+    and w.save() never ran: baker-trails' underwriting silently became the
+    master's $600,000 / 4x1BR+4x2BR demo deal. Two weeks live, because no test
+    exercised intake.main() — only parsers.parse_rent_roll.
+
+    Runs against a throwaway copy of the repo; touches nothing real.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path as _Path
+    import openpyxl
+
+    root = _Path(__file__).resolve().parent.parent
+    with tempfile.TemporaryDirectory() as td:
+        sandbox = _Path(td) / "repo"
+        shutil.copytree(root, sandbox, ignore=shutil.ignore_patterns(
+            ".git", "market-data", "docs", "reference", "*.pdf"))
+        wb_path = sandbox / "deal-intake" / "baker-trails" / "baker-trails_acq.xlsx"
+
+        def mix(path):
+            ws = openpyxl.load_workbook(path)["Inputs"]
+            return (ws["B2"].value,
+                    [(ws.cell(r, 5).value, ws.cell(r, 6).value, ws.cell(r, 8).value)
+                     for r in (3, 4)])
+
+        before = mix(wb_path)
+        proc = subprocess.run(
+            [sys.executable, str(sandbox / "tools" / "intake.py"),
+             "--deal", "baker-trails", "--price", "750000",
+             "--location", "Baker", "--apply"],
+            capture_output=True, text=True, timeout=600)
+        out = proc.stdout + proc.stderr
+
+        check("intake --apply: does not raise TypeError on a roll with vacancies",
+              "TypeError" not in out, out[-300:])
+        check("intake --apply: writes the workbook",
+              "WROTE" in out and proc.returncode == 0,
+              f"rc={proc.returncode}")
+
+        after = mix(wb_path)
+        # The master demo deal is $600,000 / 4x'1 BR/ 1 BA' - never the result.
+        check("intake --apply: workbook is not replaced by the master demo deal",
+              after[0] == 750000 and after[1][0][1] != "1 BR/ 1 BA",
+              f"before={before} after={after}")
+        check("intake --apply: the OM roll's real mix lands in the workbook",
+              after[1] == [(8, "2 BR/ 1 BA", 725), (4, "3 BR/ 1 BA", 925)],
+              f"got {after[1]}")
+        check("intake --apply: the roll's own 33.3% vacancy is surfaced",
+              "33.3% physical vacancy" in out)
+        check("intake --apply: no staging file is left behind",
+              not list(wb_path.parent.glob("*staging*")))
+
+        # A failure after the clone must leave the ORIGINAL workbook intact.
+        good = mix(wb_path)
+        proc = subprocess.run(
+            [sys.executable, str(sandbox / "tools" / "intake.py"),
+             "--deal", "baker-trails", "--price", "750000",
+             "--set", "no_such_input_key=1", "--apply"],
+            capture_output=True, text=True, timeout=600)
+        check("intake --apply: a failed run leaves the previous workbook intact",
+              mix(wb_path) == good and proc.returncode != 0,
+              f"rc={proc.returncode}, workbook now {mix(wb_path)}")
+
+
+def test_solve_price_returns_the_basis_it_certified():
+    """A rung must be re-scorable on the basis that certified it.
+
+    2026-09-07: solve_price re-derived taxes and the exit cap at every trial
+    price, then returned {price, irr} alone. Consumers re-ran the rung with the
+    ASKING price's tax bill and exit cap still attached, understating the
+    rung's own IRR and its P(IRR>=target) by 3.0-5.5pp — on eden's 22% rung,
+    which is the live pursue basis.
+    """
+    for deal, target in (("eden-church-mhp", 0.22), ("treme-gov-nicholls", 0.13)):
+        inputs = pymodel._load_deal(deal)
+        res = pymodel.solve_price(dict(inputs), target)
+        check(f"solve_price: {deal} @{target:.0%} solves", res is not None)
+        if not res:
+            continue
+        check(f"solve_price: {deal} returns the tax basis it used",
+              res.get("taxes_annual") is not None
+              and abs(res["taxes_annual"] - inputs["taxes_annual"]) > 1,
+              f"returned {res.get('taxes_annual')}, ask basis {inputs['taxes_annual']}")
+        check(f"solve_price: {deal} returns the exit cap it used",
+              res.get("exit_cap") is not None)
+        # Re-scored on the returned basis, the rung reproduces its own label.
+        rescored = pymodel.run(dict(inputs, price=res["price"],
+                                    taxes_annual=res["taxes_annual"],
+                                    exit_cap=res["exit_cap"]))["levered_irr"]
+        check(f"solve_price: {deal} @{target:.0%} re-scores to its own label",
+              abs(rescored - target) < 0.002,
+              f"re-scored {rescored:.4f} vs target {target}")
+
+
+def test_commercial_share_is_a_valid_model_input():
+    """The unknown-key guard must not reject a key _load_deal injects.
+
+    2026-09-07: the guard added earlier the same day omitted commercial_share,
+    which _load_deal copies out of deals.json exactly as it copies location.
+    Every mixed-use deal — supported, documented, and inside the NOLA buy box —
+    would have raised in run/tornado/monte_carlo while solve_price (which pops
+    the key) kept working: a confusing half-failure.
+    """
+    inputs = pymodel._load_deal("treme-gov-nicholls")
+    inputs["commercial_share"] = 0.3
+    r = pymodel.run({k: v for k, v in inputs.items() if k != "location"})
+    check("commercial_share is accepted by run()",
+          r.get("levered_irr") is not None)
+    try:
+        pymodel.run({**inputs, "comercial_share": 0.3})
+        check("a misspelled commercial_share is still rejected", False, "no raise")
+    except ValueError:
+        check("a misspelled commercial_share is still rejected", True)
+
+
+def test_icmemo_tornado_keeps_every_downside_row():
+    """The vacancy stress must survive into the memo the house rule cites."""
+    import icmemo
+    inputs = pymodel._load_deal("treme-gov-nicholls")
+    rows = pymodel.tornado(inputs)
+    downside = [r for r in rows if (r["delta_irr"] or 0) < 0]
+    check("tornado: treme has a vacancy downside row",
+          any("vacancy" in r["factor"].lower() for r in downside),
+          f"factors: {[r['factor'] for r in downside]}")
+    check("tornado: more downside rows exist than the old top-3 slice showed",
+          len(downside) > 3, f"{len(downside)} downside rows")
+    memo = "\n".join(icmemo.build_memo_lines("treme-gov-nicholls")) \
+        if hasattr(icmemo, "build_memo_lines") else None
+    if memo is not None:
+        check("icmemo: the vacancy stress row reaches the memo",
+              "vacancy" in memo.lower())
+
+
+def test_hedonic_market_comes_from_the_parish():
+    """The comp market must follow the deal's parish, not its history prose."""
+    import hedonic
+    cases = [("new orleans", "new orleans"), ("gretna", "new orleans"),
+             ("chalmette", "new orleans"), ("covington", "northshore"),
+             ("hammond", "northshore"), ("baker", "baton rouge"),
+             ("denham springs", "baton rouge"), ("gonzales", "baton rouge"),
+             ("lafayette", "lafayette")]
+    for loc, want in cases:
+        got, how = hedonic.market_for_location(loc)
+        check(f"hedonic: {loc} -> {want}", got == want, f"got {got} ({how})")
+    got, why = hedonic.market_for_location("Nowheresville")
+    check("hedonic: an unresolvable location fails rather than defaulting to "
+          "baton rouge", got is None, f"got {got}")
+    got, why = hedonic.market_for_location(None)
+    check("hedonic: a missing location fails loudly", got is None)
+
+
+def test_hedonic_has_no_year_regressor():
+    """The year term measured market mix, not appreciation — and was applied.
+
+    2026-09-07: fit() printed "Do NOT read it as a time trend" and predict()
+    then multiplied every estimate by exp(-0.0881 * (year-2021)) = 0.644 at
+    2026. Baton Rouge read $41,664/unit instead of $59,100; a 12-unit Baker
+    priced at $499,969 instead of $709,198, so the market approach appeared to
+    corroborate a sub-$500K ladder on the strength of an acknowledged artifact.
+    """
+    import hedonic
+    fr = hedonic.fit(verbose=False)
+    check("hedonic: design matrix has no year column", fr["k"] == 5, f"k={fr['k']}")
+    a = hedonic.predict("baton rouge", 12, year=2021, fit_result=fr, loud=False)
+    b = hedonic.predict("baton rouge", 12, year=2026, fit_result=fr, loud=False)
+    check("hedonic: the year argument no longer moves the estimate",
+          a["point_per_unit"] == b["point_per_unit"],
+          f"{a['point_per_unit']} vs {b['point_per_unit']}")
+    check("hedonic: baton rouge is back above the artifact-suppressed level",
+          b["point_per_unit"] > 55_000, f"got {b['point_per_unit']}")
+    ns = hedonic.predict("northshore", 18, fit_result=fr, loud=False)
+    check("hedonic: a one-sale market coefficient is flagged as thin support",
+          any("THIN SUPPORT" in c for c in ns["caveats"]), f"{ns['caveats']}")
+    nola = hedonic.predict("new orleans", 8, fit_result=fr, loud=False)
+    check("hedonic: a well-supported market is not flagged thin",
+          not any("THIN SUPPORT" in c for c in nola["caveats"]))
+
+
+def test_flood_cli_does_not_print_no_for_undetermined():
+    """`SFHA: no` is the line that gets copied into memos."""
+    import io
+    import contextlib
+    import flood
+    for zone, sfha, want in (("X", False, "no"), ("AE", True, "YES"),
+                             ("UNMAPPED", None, "UNDETERMINED"),
+                             ("D", None, "UNDETERMINED")):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            flood._print_result({"address": "a", "zone": zone, "sfha": sfha,
+                                 "note": "n"}, as_json=False)
+        line = next(l for l in buf.getvalue().splitlines() if l.startswith("SFHA"))
+        check(f"flood CLI: {zone} (sfha={sfha}) prints {want}",
+              want in line, f"printed {line!r}")
+
+
+def test_latax_rejects_a_percentage_typed_as_a_percent():
+    """`--commercial-share 30` meaning 30% used to return a 16x tax bill."""
+    import latax
+    ok, _ = latax.estimate_tax(1_500_000, "Gonzales", 0.3)
+    check("latax: a valid fraction still works", ok is not None and ok > 0)
+    for bad in (30, -0.5, 1.5):
+        try:
+            latax.estimate_tax(1_500_000, "Gonzales", bad)
+            check(f"latax: commercial_share={bad} is rejected", False, "no raise")
+        except ValueError:
+            check(f"latax: commercial_share={bad} is rejected", True)
+
+
+def test_market_parish_coverage_matches_latax():
+    """market.py's docstring claimed parity with latax; it was short two."""
+    import latax
+    import market
+    missing = sorted(set(latax.MILLAGE) - set(market.PARISHES))
+    check("market.py covers every latax parish", not missing, f"missing {missing}")
+    check("market.py covers st. bernard (in the buy box)",
+          "st. bernard" in market.PARISHES)
+
+
+def test_irr_verdict_applies_the_pursue_floor():
+    """12.5% is inside the realistic band and below the house floor."""
+    import report
+    check("irr_verdict: 12.5% is called out as below the pursue floor",
+          "BELOW PURSUE FLOOR" in report.irr_verdict(0.125),
+          report.irr_verdict(0.125))
+    check("irr_verdict: 12.9% likewise",
+          "BELOW PURSUE FLOOR" in report.irr_verdict(0.129))
+    check("irr_verdict: 13.0% clears",
+          "BELOW PURSUE FLOOR" not in report.irr_verdict(0.130),
+          report.irr_verdict(0.130))
+
+
+def test_portfolio_sim_charges_idle_capital_once():
+    """Year 0 debited the whole cheque; later buys debited their equity again.
+
+    2026-09-07: baker-then-fourplex printed IRR -1.1% / -$23,995 profit beside
+    "Cash returned $437,208 (1.46x)" because $143,747 of idle year-0 cash was
+    charged twice. On a capital-called convention the same sequence is +9.0%.
+    """
+    import portfolio_sim
+    res = portfolio_sim.simulate(
+        portfolio_sim._load_scenario("baker-then-fourplex"))
+    cf = res["portfolio_cf"]
+    check("portfolio_sim: a profitable sequence does not print as a loss",
+          res["total_profit"] > 0, f"profit {res['total_profit']:,.0f}")
+    check("portfolio_sim: portfolio IRR is positive on this scenario",
+          (res["portfolio_irr"] or 0) > 0, f"IRR {res['portfolio_irr']}")
+    check("portfolio_sim: year 0 charges deployed capital, not the whole cheque",
+          abs(cf[0]) < res["starting_equity"] - 1,
+          f"cf[0]={cf[0]:,.0f} vs cheque {res['starting_equity']:,.0f}")
+    check("portfolio_sim: sum of flows equals reported profit",
+          abs(sum(cf) - res["total_profit"]) < 1.0)
+
+
+def test_portfolio_status_excludes_non_operating_credits():
+    """A loan draw is not rent."""
+    import portfolio
+    acts = [
+        {"date": "2027-01-05", "desc": "Rent", "amount": 1200, "cat": "rent"},
+        {"date": "2027-01-06", "desc": "Construction loan draw",
+         "amount": 25000, "cat": "debt"},
+        {"date": "2027-01-15", "desc": "Repairs", "amount": -180, "cat": "repairs"},
+    ]
+    import io
+    import contextlib
+    import json as _json
+    import shutil
+    import tempfile
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent
+    original = portfolio.DEALS
+    with tempfile.TemporaryDirectory() as td:
+        fake = _Path(td) / "deals.json"
+        rec = {"testdeal": {"stage": "owned", "created": "2027-01-01",
+                            "history": [], "actuals": acts, "payback": [],
+                            "plan": {"monthly_noi_target": 11956}}}
+        fake.write_text(_json.dumps(rec))
+        portfolio.DEALS = fake
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                portfolio.cmd_status("testdeal")
+            out = buf.getvalue()
+        finally:
+            portfolio.DEALS = original
+    check("portfolio status: a $25,000 loan draw is not booked as collections",
+          "$29,020" not in out and "$1,200" in out, out)
+    check("portfolio status: the month reads NO against a $11,956 target",
+          "NO" in out, out)
+    check("portfolio status: the excluded credit is reported, not hidden",
+          "25,000" in out, out)
+
+
 def main():
     print("REGRESSION TESTS (2026-08-09 sweep)")
     test_solve_not_false_unreachable()
@@ -333,6 +758,22 @@ def main():
     test_flood_degrades_to_unknown_not_clear()
     test_rentcast_matches_by_address_hint()
     test_beats_index_is_deterministic()
+    print("REGRESSION TESTS (2026-09-07 sweep)")
+    test_unknown_model_input_is_refused()
+    test_insurance_gate_needs_an_artifact_not_prose()
+    test_bankpackage_diligence_gates_fail_closed()
+    test_intake_apply_end_to_end_preserves_the_workbook()
+    test_solve_price_returns_the_basis_it_certified()
+    test_commercial_share_is_a_valid_model_input()
+    test_hedonic_market_comes_from_the_parish()
+    test_hedonic_has_no_year_regressor()
+    test_flood_cli_does_not_print_no_for_undetermined()
+    test_latax_rejects_a_percentage_typed_as_a_percent()
+    test_market_parish_coverage_matches_latax()
+    test_irr_verdict_applies_the_pursue_floor()
+    test_icmemo_tornado_keeps_every_downside_row()
+    test_portfolio_sim_charges_idle_capital_once()
+    test_portfolio_status_excludes_non_operating_credits()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)

@@ -152,20 +152,14 @@ def main():
             try:
                 inputs = pymodel._load_deal(name)
                 total_units = sum(g["units"] for g in inputs["unit_mix"])
-                # Infer market from deals history notes (best effort)
-                hist_text = " ".join(h.get("note", "") for h in deals[name]["history"]).lower()
-                if "baker" in name or "baker" in hist_text:
-                    mkt = "baton rouge"
-                elif "eden" in name or "denham" in hist_text or "livingston" in hist_text:
-                    mkt = "baton rouge"
-                elif "covington" in name or "northshore" in hist_text:
-                    mkt = "northshore"
-                elif "new orleans" in hist_text or "nola" in hist_text:
-                    mkt = "new orleans"
-                elif "lafayette" in hist_text:
-                    mkt = "lafayette"
-                else:
-                    mkt = "baton rouge"  # default for LA tertiary
+                # Market comes from the deal's parish, never from history prose
+                # (2026-09-07: "baker" inside a treme note valued a Tremé
+                # building against Baton Rouge comps, 49% low).
+                mkt, mkt_how = hedonic.market_for_location(
+                    deals[name].get("location"))
+                if mkt is None:
+                    print(f"  {name:<24} SKIPPED - {mkt_how}")
+                    continue
                 pred = hedonic.predict(mkt, int(total_units), year=2026,
                                        fit_result=hedonic.fit(verbose=False), loud=False)
                 print(f"  {name:<24} {mkt}  {int(total_units)}u  "

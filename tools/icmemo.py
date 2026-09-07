@@ -83,14 +83,37 @@ def _detect_t12(deal_dir: Path):
     return None
 
 
-def _insurance_noted(deal_dir: Path, history_text: str) -> bool:
-    """True if an insurance quote is mentioned anywhere in deal files or notes."""
-    for p in deal_dir.iterdir():
-        if "insurance" in p.name.lower() or "flood" in p.name.lower():
-            return True
-    return ("insurance quote" in history_text.lower()
-            or "flood quote" in history_text.lower()
-            or "bindable" in history_text.lower())
+def _insurance_noted(deal_dir: Path, history_text: str, deal_rec: dict | None = None):
+    """Evidence that a real insurance quote is in hand. Returns (bool, evidence).
+
+    2026-09-07: this used to return True if the words "bindable", "insurance
+    quote" or "flood quote" appeared anywhere in the deal history. Those words
+    appear most often in the sentence that says the quote is still OUTSTANDING.
+    Eden's own note — 'GATE: bindable habitational insurance <=~1600/u
+    (Apartment Guard follow-up drafted)' — therefore satisfied the check, and
+    both the IC memo ('✓ Insurance quote noted') and the bank package
+    ('$1,060/unit/yr (Louisiana-adjusted)') told the reader a hard pre-offer
+    gate was cleared while it was open, on the seller's carried premium.
+
+    Prose about a gate is not evidence the gate is closed. Require an artifact:
+    a quote document filed in the deal folder, or an explicit `insurance_quote`
+    record in portfolio/deals.json. Absent one, the answer is no.
+    """
+    rec = deal_rec or {}
+    quote = rec.get("insurance_quote")
+    if quote:
+        if isinstance(quote, dict):
+            bits = [str(quote[k]) for k in ("carrier", "per_unit", "date") if quote.get(k)]
+            return True, "deals.json insurance_quote: " + (", ".join(bits) or "recorded")
+        return True, f"deals.json insurance_quote: {quote}"
+
+    if deal_dir.exists():
+        for p in sorted(deal_dir.iterdir()):
+            name = p.name.lower()
+            if "insurance" in name or "quote" in name:
+                return True, f"quote document on file: {p.name}"
+
+    return False, ""
 
 
 def _parcel_tax_reconcile(parish: str, assessment: float, price: float) -> list[str]:
@@ -209,7 +232,7 @@ def main():
     # Detect rent roll and T-12
     rr_path, rr_status = _detect_rent_roll(deal_dir)
     t12_path = _detect_t12(deal_dir)
-    ins_noted = _insurance_noted(deal_dir, history_text)
+    ins_noted, ins_evidence = _insurance_noted(deal_dir, history_text, deal_rec)
 
     # Pull deal header from workbook inputs
     price = inputs["price"]
@@ -253,10 +276,20 @@ def main():
     # Thesis
     h2("INVESTMENT THESIS")
     if history:
-        thesis_notes = [h["note"] for h in history if h.get("note") and h["note"] != "created"]
+        # NEWEST first. 2026-09-07: this took history[:3] — the three OLDEST
+        # notes — so treme's thesis printed "VERDICT PURSUE" from 2026-08-08
+        # while the operative 2026-08-24 note ("HOUSE RULE NOW FAILS AT EVERY
+        # LADDER PRICE... Recommend NOT offering") was note #4 and never
+        # appeared, and eden's thesis quoted a superseded $1.354M pursue price
+        # against the $1,559,000 in its own ladder two sections below.
+        thesis_notes = [h for h in history
+                        if h.get("note") and h["note"] != "created"]
         if thesis_notes:
-            for note in thesis_notes[:3]:  # top 3 meaningful notes
-                p(f"- {note}")
+            for h in list(reversed(thesis_notes))[:3]:
+                p(f"- **{h.get('date', 'undated')}:** {h['note']}")
+            if len(thesis_notes) > 3:
+                p(f"- _({len(thesis_notes) - 3} older note(s) omitted — "
+                  f"full history below.)_")
         else:
             p("- (No thesis notes in portfolio history)")
     else:
@@ -317,7 +350,7 @@ def main():
     blank()
 
     # Tornado top-3
-    h2("SENSITIVITY — TOP 3 FACTORS (TORNADO)")
+    h2("SENSITIVITY — DOWNSIDE STRESSES (TORNADO)")
     try:
         tresults = pymodel.tornado(inputs)
         base_irr = (r["levered_irr"] or 0) * 100
@@ -325,10 +358,24 @@ def main():
         blank()
         p("| Factor                   | Stressed IRR | Delta   |")
         p("|--------------------------|--------------|---------|")
-        for row in tresults[:3]:
+        # Every DOWNSIDE row, not the top 3 by absolute delta. 2026-09-07:
+        # the absolute sort put "insurance -50%" (an UPSIDE, and $1,500/unit
+        # against CLAUDE.md's $3,000 for Orleans wind) at the head of treme's
+        # table and cut "vacancy +3pts" — the only vacancy stress — three lines
+        # above the memo's own note that vacancy is judged by the stress grid
+        # and not by MC. That left an MC probability as the reader's sole
+        # vacancy number, inverting the house rule the same paragraph asserts.
+        downside = [row for row in tresults if (row["delta_irr"] or 0) < 0]
+        for row in downside:
             sirr = (row["stressed_irr"] or 0) * 100
             delta = row["delta_irr"] * 100
             p(f"| {row['factor']:<24} | {sirr:>10.1f}%  | {delta:>+6.1f}% |")
+        upside = [row for row in tresults if (row["delta_irr"] or 0) >= 0]
+        if upside:
+            blank()
+            p("*Upside cases, shown separately so they cannot lead the table: "
+              + ", ".join(f"{u['factor']} {u['delta_irr']*100:+.1f}%" for u in upside)
+              + ".*")
     except Exception as e:
         p(f"tornado unavailable: {e}")
     blank()
@@ -373,23 +420,18 @@ def main():
     h2("MARKET APPROACH (HEDONIC)")
     try:
         import hedonic
-        hist_low = history_text.lower()
-        if "baker" in deal or "baker" in hist_low:
-            mkt = "baton rouge"
-        elif "eden" in deal or "denham" in hist_low or "livingston" in hist_low:
-            mkt = "baton rouge"
-        elif "covington" in deal or "northshore" in hist_low:
-            mkt = "northshore"
-        elif "new orleans" in hist_low or "nola" in hist_low:
-            mkt = "new orleans"
-        elif "lafayette" in hist_low:
-            mkt = "lafayette"
-        else:
-            mkt = "baton rouge"
+        mkt, mkt_how = hedonic.market_for_location(deal_rec.get("location"))
+        if mkt is None:
+            raise ValueError(
+                f"cannot pick a comp market for {deal}: {mkt_how}. "
+                "Set a 'location' on the deal in portfolio/deals.json — "
+                "guessing from history text valued a Tremé building against "
+                "Baton Rouge comps (2026-09-07 sweep)."
+            )
         pred = hedonic.predict(mkt, int(total_units), year=2026,
                                fit_result=hedonic.fit(verbose=False), loud=False)
         bf = pred["band_note"]
-        p(f"- **Market:** {mkt.title()}")
+        p(f"- **Market:** {mkt.title()}  ({mkt_how})")
         p(f"- **Estimated total value:** ${pred['total_point']:,.0f}  "
           f"(band ${pred['total_low']:,.0f}–${pred['total_high']:,.0f})")
         p(f"- **Per unit:** ${pred['point_per_unit']:,.0f}  "
@@ -495,10 +537,12 @@ def main():
 
     # Insurance quote
     if ins_noted:
-        gaps.append("✓ Insurance quote noted in deal history or files")
+        gaps.append(f"✓ Insurance quote on file — {ins_evidence}")
     else:
-        gaps.append("❌ No insurance quote on file — "
-                    "required before any offer (LA market; template default unreliable)")
+        gaps.append(f"❌ No insurance quote on file (carrying "
+                    f"${inputs.get('insurance', 0):,.0f}/unit/yr) — "
+                    "required before any offer (LA market; neither a template "
+                    "default nor the seller's carried premium is a quote)")
 
     # SFHA warning if applicable
     if args.address:

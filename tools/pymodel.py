@@ -807,6 +807,24 @@ def _merge_defaults(inputs):
         "reno_downtime_months": 1,
         "reno_start_year": 1,
     }
+    # A key the engine does not read is almost always a caller typo, and a typo
+    # here is silent and expensive: `run({**deal, "purchase_price": 1_251_000})`
+    # returns the ask-price answer with no diagnostic. That class of scripting
+    # slip already published a wrong price ladder once (baker-trails,
+    # 2026-08-03 "RED-TEAM CORRECTION" in portfolio/deals.json). Refuse instead.
+    # `location` and `commercial_share` are consumed by solve_price's tax
+    # re-derivation rather than by run() itself, but _load_deal injects both
+    # from deals.json, so they are legitimate members of a deal input dict.
+    allowed = set(defaults) | {"price", "unit_mix", "location", "commercial_share"}
+    unknown = sorted(set(inputs) - allowed)
+    if unknown:
+        raise ValueError(
+            "unknown model input(s): " + ", ".join(unknown)
+            + ". The engine does not read these, so they would be silently "
+              "ignored and the run would answer a different question than you "
+              "asked. Known inputs: " + ", ".join(sorted(allowed))
+        )
+
     p = dict(defaults)
     p.update(inputs)
 
@@ -868,7 +886,8 @@ def solve_price(inputs: dict, target_irr: float, tol: float = 0.0001,
                   "biasing the solve optimistic. Fix the town/parish name.",
                   file=sys.stderr)
 
-    def _irr_at(price):
+    def _inputs_at(price):
+        """The exact input set a trial price is scored on."""
         p = dict(base)
         p["price"] = price
         p["exit_cap"] = None   # force re-derive
@@ -876,11 +895,28 @@ def solve_price(inputs: dict, target_irr: float, tol: float = 0.0001,
             tax, _ = latax.estimate_tax(price, location, commercial_share)
             if tax is not None:
                 p["taxes_annual"] = tax
+        return p
+
+    def _irr_at(price):
         try:
-            r = run(p)
-            return r["levered_irr"]
+            return run(_inputs_at(price))["levered_irr"]
         except Exception:
             return None
+
+    def _basis_at(price):
+        """The tax bill and exit cap the rung was certified on, so consumers
+        can re-score it on the same basis instead of the asking price's."""
+        p = _inputs_at(price)
+        try:
+            merged = _merge_defaults(dict(p))   # resolves exit_cap=None
+        except Exception:
+            return {}
+        return {"taxes_annual": p.get("taxes_annual"),
+                "exit_cap": merged.get("exit_cap"),
+                "basis_note": (
+                    f"scored at ${p.get('taxes_annual', 0):,.0f}/yr taxes "
+                    f"(reassessed to ${price:,.0f})" if location else
+                    "taxes frozen at the loaded basis - no location on the deal")}
 
     asking = inputs["price"]
     irr_hi = _irr_at(asking)
@@ -924,6 +960,15 @@ def solve_price(inputs: dict, target_irr: float, tol: float = 0.0001,
         # $664,000 @ 15.997%). Flooring keeps price and label consistent.
         best["price"] = int(best["price"] // 1000) * 1000
         best["irr"] = _irr_at(best["price"])
+        # Hand back the basis the rung was certified on. A sale reassesses, so
+        # every trial price above was scored on ITS OWN tax bill and its own
+        # re-derived exit cap — but the solver used to return {price, irr}
+        # alone, and consumers then re-scored the rung with the ASKING price's
+        # taxes still attached. That understated P(IRR>=target) by 3.0-5.5pp
+        # (eden's 22% rung, the live pursue basis, 33.9% -> 38.8%) and the
+        # rung's own deterministic IRR by up to a full point. Returning the
+        # basis kills the class rather than each instance (2026-09-07 sweep).
+        best.update(_basis_at(best["price"]))
     return best
 
 
@@ -1824,7 +1869,13 @@ def main():
             print(f"  Already clears at ${inputs['price']:,.0f}")
         else:
             disc = (1 - res["price"] / inputs["price"]) * 100
+            # Score the rung on the basis it was CERTIFIED on, not the asking
+            # price's tax bill and exit cap (2026-09-07 sweep: understated
+            # P(IRR>=target) by 3.0-5.5pp across the live ladder).
             solve_inputs = dict(inputs, price=res["price"])
+            for k in ("taxes_annual", "exit_cap"):
+                if res.get(k) is not None:
+                    solve_inputs[k] = res[k]
             solve_mc = monte_carlo(solve_inputs, n=1000, seed=42, deal_name=args.deal,
                                    year_built=args.year_built)
             p_target = sum(1 for x in solve_mc["irr_samples"] if x >= target) / max(len(solve_mc["irr_samples"]), 1)

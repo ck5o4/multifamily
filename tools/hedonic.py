@@ -14,7 +14,6 @@ Model:
                 + β2 * d_lafayette
                 + β3 * d_northshore
                 + β4 * log(units)
-                + β5 * (year - 2021)
                 + ε
 
     Base market: baton rouge
@@ -42,6 +41,55 @@ LOG = pathlib.Path(__file__).resolve().parent.parent / "portfolio" / "calibratio
 
 KNOWN_MARKETS = {"baton rouge", "new orleans", "lafayette", "northshore"}
 BASE_MARKET = "baton rouge"
+
+# Parish -> comp market. The buy box spans four hedonic markets; the parish is
+# the only fact that decides which one, so resolve from the deal's location.
+PARISH_TO_MARKET = {
+    "orleans": "new orleans", "jefferson": "new orleans",
+    "st. bernard": "new orleans", "plaquemines": "new orleans",
+    "st. tammany": "northshore", "tangipahoa": "northshore",
+    "lafayette": "lafayette",
+    "east baton rouge": "baton rouge", "ascension": "baton rouge",
+    "livingston": "baton rouge", "west baton rouge": "baton rouge",
+    "iberville": "baton rouge", "st. john the baptist": "baton rouge",
+    "st. charles": "baton rouge", "st. james": "baton rouge",
+}
+
+
+def _market_support(fit_result):
+    """How many clean sales back each market dummy. A dummy with one
+    observation fits that observation exactly and is not a market estimate."""
+    counts = {}
+    for r in fit_result.get("clean", []):
+        counts[r["market"]] = counts.get(r["market"], 0) + 1
+    return counts
+
+
+def market_for_location(location):
+    """Deal location -> (hedonic market, how). (None, reason) if unresolvable.
+
+    2026-09-07: icmemo and briefing each picked the market by searching the
+    deal's free-text history for 'baker', 'nola', etc., with 'baker' tested
+    first. The 2026-08-24 sweep note on treme-gov-nicholls contains the words
+    "the 46pct at which Baker was PASSED", so a Tremé building was valued
+    against Baton Rouge comps: $336,170 total / $42,021 per unit, against a
+    correct New Orleans read of $664,377 / $83,047 — 49% low on a deal asking
+    $106K/unit. CLAUDE.md is explicit that the Baton Rouge per-unit screen does
+    not transfer to New Orleans. History prose is not a location; the parish is.
+    """
+    try:
+        import latax
+    except ImportError:
+        return None, "latax unavailable"
+    if not location:
+        return None, "no location on the deal record"
+    parish, how = latax.resolve_parish(location)
+    if parish is None:
+        return None, how
+    market = PARISH_TO_MARKET.get(parish)
+    if market is None:
+        return None, f"no comp market mapped for {parish.title()} Parish"
+    return market, f"{how} -> {market.title()} comps"
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +237,6 @@ def build_design_matrix(rows):
             1.0 if mkt == "lafayette" else 0.0,    # d_lafayette
             1.0 if mkt == "northshore" else 0.0,   # d_northshore
             math.log(r["units"]),                  # log(units)
-            float(r["year_idx"]),                  # year - 2021
         ]
         X.append(row)
         y.append(r["log_ppu"])
@@ -254,19 +301,18 @@ def _print_fit(clean, exclusions, beta, y_hat, residuals, r2, res_se,
     print()
 
     names = [
-        "intercept (log $/unit, baton rouge base, 0 units-log, year 2021)",
+        "intercept (log $/unit, baton rouge base, 0 units-log)",
         "new orleans premium vs baton rouge",
         "lafayette premium vs baton rouge",
         "northshore premium vs baton rouge",
         "log(units) coefficient  [size discount/premium per 1% more units]",
-        "year index (per year since 2021)",
     ]
     print("COEFFICIENTS:")
     for i, (name, b) in enumerate(zip(names, beta)):
         if i == 0:
             implied_base = math.exp(b)
             print(f"  β{i}  {b:+.4f}  {name}")
-            print(f"       → implies base $/unit at 1 unit, 2021 = ${implied_base:,.0f}")
+            print(f"       → implies base $/unit at 1 unit = ${implied_base:,.0f}")
         elif i in (1, 2, 3):
             pct = (math.exp(b) - 1) * 100
             print(f"  β{i}  {b:+.4f}  {name}")
@@ -278,15 +324,6 @@ def _print_fit(clean, exclusions, beta, y_hat, residuals, r2, res_se,
             print(f"       → {b:.4f} in log-log: each 1% more units → "
                   f"{pct_per_1pct:+.3f}% change in $/unit")
             print(f"       → doubling units: $/unit factor = {math.exp(b * math.log(2)):.3f}x")
-        elif i == 5:
-            annual_pct = (math.exp(b) - 1) * 100
-            total_5yr = (math.exp(b * 5) - 1) * 100
-            print(f"  β{i}  {b:+.4f}  {name}")
-            print(f"       → {annual_pct:+.1f}%/yr implied (2021→2026 cumulative: {total_5yr:+.1f}%)")
-            print(f"       *** DATA WARNING: 2021-2022 = 31 Baton Rouge-only sales;")
-            print(f"       2023-2024 = NO DATA; 2026 = 24 NOLA/NS/LFT-heavy sales.")
-            print(f"       This coefficient captures market-composition shift, NOT")
-            print(f"       real appreciation. Do NOT read it as a time trend. ***")
 
     print()
     print("MODEL QUALITY:")
@@ -354,7 +391,6 @@ def predict(market, units, year=2026, fit_result=None, loud=True):
         1.0 if market == "lafayette" else 0.0,
         1.0 if market == "northshore" else 0.0,
         math.log(units),
-        float(year - 2021),
     ]
     log_pred = sum(beta[j] * row[j] for j in range(len(beta)))
     point = math.exp(log_pred)
@@ -364,10 +400,31 @@ def predict(market, units, year=2026, fit_result=None, loud=True):
     # Fit-time warnings must reach predict-time consumers (icmemo/briefing),
     # not just whoever ran `hedonic.py fit` once.
     caveats = [
-        "year coefficient is a market-composition artifact (2021-22 = Baton "
-        "Rouge-only sales, 2023-24 = no data, 2026 = NOLA/Northshore/Lafayette-"
-        "heavy) — do NOT read it as a time trend",
+        "no time trend is modelled — the sample is perfectly confounded "
+        "(2021-22 = 31 Baton Rouge-only sales, 2023-24 = no data, 2026 = 24 "
+        "NOLA/Northshore/Lafayette-heavy), so a year term measures market mix, "
+        "not appreciation. This is a cross-sectional read at no particular date",
     ]
+    # 2026-09-07: the year regressor used to be IN the model, carrying the
+    # caveat above while still multiplying every prediction by exp(-0.0881 x 5)
+    # = 0.644. Applying a coefficient the module itself labels invalid put the
+    # Baton Rouge read at $41,664/unit against $59,100 without it — and a
+    # 12-unit Baker at $499,969 against $709,198, which made the market
+    # approach appear to corroborate a sub-$500K ladder on the strength of an
+    # artifact. Dropping it costs R2 0.243 -> 0.204 and moves the non-Baton
+    # Rouge markets by under 2.5%.
+    if year is not None:
+        caveats.append(f"the 'year' argument ({year}) is accepted for "
+                       "compatibility and has NO effect on the estimate")
+    support = _market_support(fr)
+    n_mkt = support.get(market, 0)
+    if n_mkt < 5:
+        caveats.append(
+            f"THIN SUPPORT: the {market.title()} coefficient is fit on "
+            f"{n_mkt} sale(s). "
+            + ("A one-observation dummy fits that sale exactly, so this is that "
+               "sale's price per unit, not a market. " if n_mkt <= 1 else "")
+            + "Treat as a single data point, not a comp set")
     if fr["r2"] < 0.40:
         caveats.append(f"R² = {fr['r2']:.3f} < 0.40 — model explains little "
                        "variation; use the band, not the point estimate")

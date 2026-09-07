@@ -161,19 +161,35 @@ def lookup(address):
             "zone": zone, "sfha": sfha, "note": note}
 
 
-def main(argv):
-    as_json = "--json" in argv
-    args = [a for a in argv if not a.startswith("--")]
-    if not args:
-        raise SystemExit(__doc__)
-    result = lookup(" ".join(args))
+def _sfha_line(sfha):
+    """Three-way, like every consumer. `sfha is None` means unmapped or
+    unstudied, NOT clear — printing "no" here is how "SFHA: No" ended up
+    copied into an IC memo for a parcel FEMA never determined (2026-09-07
+    sweep; the F7 degrade-optimistically class surviving in the one place a
+    human runs the tool by hand)."""
+    if sfha is True:
+        return "YES - flood insurance required"
+    if sfha is None:
+        return "UNDETERMINED - not confirmed clear, order a determination"
+    return "no"
+
+
+def _print_result(result, as_json=False):
     if as_json:
         print(json.dumps(result, indent=2))
         return
     print(f"Address : {result['address']}")
     print(f"Zone    : {result['zone']}")
-    print(f"SFHA    : {'YES - flood insurance required' if result['sfha'] else 'no'}")
+    print(f"SFHA    : {_sfha_line(result['sfha'])}")
     print(f"Note    : {result['note']}")
+
+
+def main(argv):
+    as_json = "--json" in argv
+    args = [a for a in argv if not a.startswith("--")]
+    if not args:
+        raise SystemExit(__doc__)
+    _print_result(lookup(" ".join(args)), as_json)
 
 
 if __name__ == "__main__":

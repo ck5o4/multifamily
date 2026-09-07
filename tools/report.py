@@ -1,6 +1,6 @@
 """Formatting and verdicts for recalculated models."""
 
-from cellmap import IRR_REALISTIC, IRR_TARGET
+from cellmap import IRR_REALISTIC, IRR_TARGET, PURSUE_FLOOR
 
 
 def money(v):
@@ -36,8 +36,14 @@ def irr_verdict(irr):
         return "FAIL - below 10%, well under the 12-14% realistic band"
     if irr < IRR_REALISTIC[0]:
         return f"BELOW REALISTIC - under the {pct(IRR_REALISTIC[0],0)} floor of the realistic band"
+    # The 13% pursue floor OUTRANKS the realistic band (CLAUDE.md house rule:
+    # a deal must beat the index or pass). 12.5% used to print "REALISTIC BAND
+    # ... normal", which reads as acceptable for a number the house rejects.
+    if irr < PURSUE_FLOOR:
+        return (f"BELOW PURSUE FLOOR ({pct(PURSUE_FLOOR,0)}) - PASS under the house rule "
+                "(inside the 12-14% realistic band, but the floor outranks the band)")
     if irr < IRR_REALISTIC[1]:
-        return "REALISTIC BAND (12-14%) - normal for stabilized LA at current rates"
+        return "REALISTIC BAND (13-14%) - clears the pursue floor; normal for stabilized LA"
     if irr < IRR_TARGET[0]:
         return "ABOVE REALISTIC, BELOW TARGET - between 14% and the 16% target floor"
     return "MEETS TARGET (16-17%) - verify inputs; this is aggressive for stabilized LA without value-add"
@@ -238,7 +244,7 @@ def fmt_input(key, v):
 
 
 def print_provenance(rows, overrides):
-    print("\n  INPUT PROVENANCE (deal docs > override > template)")
+    print("\n  INPUT PROVENANCE (--set override > deal docs > template)")
     print(f"    {'Input':<22}{'Value':>11}  {'Source':<14}Why")
     for r in rows:
         val = fmt_input(r["key"], r["value"])

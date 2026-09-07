@@ -303,13 +303,29 @@ def cmd_status(name):
     # distributions are real cash but not operations - mixing them in made
     # every month look off-plan.
     NON_OPERATING = {"debt", "reno", "distribution"}
+    OPEX_CATS = {"insurance", "taxes", "utilities", "repairs", "mgmt"}
     months = {}
     for a in acts:
         m = str(a["date"])[:7]
-        months.setdefault(m, {"in": 0.0, "op_out": 0.0, "debt": 0.0, "other_out": 0.0})
+        months.setdefault(m, {"in": 0.0, "op_out": 0.0, "debt": 0.0,
+                              "other_out": 0.0, "other_in": 0.0})
         b = months[m]
         if a["amount"] >= 0:
-            b["in"] += a["amount"]
+            # The non-operating exclusion was applied only on the negative
+            # branch, so a positive non-operating credit — a construction-loan
+            # draw, an insurance settlement — was booked as rent collections.
+            # A $25,000 draw plus a $3,000 refund reported NOI $29,020 against
+            # a true operating $1,020 and flipped the month's on-track verdict
+            # from NO to YES (2026-09-07 sweep).
+            if a["cat"] in NON_OPERATING:
+                b["other_in"] += a["amount"]
+            elif a["cat"] in OPEX_CATS:
+                # A credit in an expense category is a refund (an insurance
+                # rebate, a returned overpayment). It offsets that expense; it
+                # is not rent collected.
+                b["op_out"] -= a["amount"]
+            else:
+                b["in"] += a["amount"]
         elif a["cat"] == "debt":
             b["debt"] += -a["amount"]
         elif a["cat"] in NON_OPERATING:
@@ -335,7 +351,11 @@ def cmd_status(name):
         print(line)
         if b["other_out"]:
             print(f"  {'':<9}{'':>11}{'':>9}{'':>10}{'':>9}"
-                  f"  (+ ${b['other_out']:,.0f} reno/distributions, excluded from NOI)")
+                  f"  (- ${b['other_out']:,.0f} reno/distributions, excluded from NOI)")
+        if b["other_in"]:
+            print(f"  {'':<9}{'':>11}{'':>9}{'':>10}{'':>9}"
+                  f"  (+ ${b['other_in']:,.0f} loan draws/non-operating credits, "
+                  f"excluded from collections)")
     if d.get("payback"):
         paid = sum(p["amount"] for p in d["payback"])
         cap = (plan or {}).get("investor_capital")

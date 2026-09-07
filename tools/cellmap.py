@@ -246,3 +246,6 @@ EXPENSE_LABELS = {
 # IRR verdict bands from CLAUDE.md. Target is aggressive; do not soften.
 IRR_REALISTIC = (0.12, 0.14)
 IRR_TARGET = (0.16, 0.17)
+# The house pursue ladder (CLAUDE.md, adopted 2026-08-02): 13% is the minimum
+# to pursue, 16% strong, 22% ideal. The floor OUTRANKS the realistic band.
+PURSUE_FLOOR, PURSUE_STRONG, PURSUE_IDEAL = 0.13, 0.16, 0.22

@@ -153,10 +153,11 @@ def compute_deal(name):
     mix = inputs["unit_mix"]
     units = sum(g["units"] for g in mix)
     avg_rent = sum(g["units"] * g["rent"] for g in mix) / units if units else 0
-    ladder = {}
+    ladder, ladder_basis = {}, {}
     for t in (0.13, 0.16, 0.22):
         res = pymodel.solve_price(dict(inputs), t)
         ladder[t] = res["price"] if res else None
+        ladder_basis[t] = res if res else {}
     # Vintage capex: the 2026-08-09 sweep wired --year-built into the CLI only,
     # so every board render left the hazard model INERT and quoted an optimistic
     # left tail (sweep 2026-08-24). Treme is a 1970 building carrying a $350/unit
@@ -177,9 +178,18 @@ def compute_deal(name):
         if not price:
             ladder_beats[t] = None
             continue
-        _mc = pymodel.monte_carlo(
-            {k: v for k, v in inputs.items() if k != "location"} | {"price": price},
-            n=1000, seed=42, deal_name=name, **_vint)
+        # A sale reassesses. solve_price certifies each rung on ITS OWN
+        # reassessed tax bill and re-derived exit cap; until 2026-09-07 the
+        # board then SCORED that rung with the ask-price basis still attached,
+        # biasing every rung against the deal by 1.0-4.3pp of beats-index
+        # (eden's 16% rung 46.7% -> 48.8%; treme's 22% rung 41.1% -> 45.1%).
+        # solve_price now hands the basis back — use it rather than re-deriving.
+        rung_inputs = {k: v for k, v in inputs.items() if k != "location"} | {"price": price}
+        for _k in ("taxes_annual", "exit_cap"):
+            if ladder_basis.get(t, {}).get(_k) is not None:
+                rung_inputs[_k] = ladder_basis[t][_k]
+        _mc = pymodel.monte_carlo(rung_inputs, n=1000, seed=42,
+                                  deal_name=name, **_vint)
         ladder_beats[t] = _beats_index(_mc.get("irr_samples") or [])
     return {
         "beats_index": beats_index,
@@ -218,10 +228,18 @@ def rung(target, label, lad, lad_beats):
     if b is None:
         note = ""
     elif b > 0.50:
-        note = f'<small class="ok">beats index {b*100:.0f}% — clears the house rule</small>'
+        note = f'<small class="ok">beats index {b*100:.1f}% — clears the house rule</small>'
     else:
-        note = (f'<small class="warn">beats index only {b*100:.0f}% — FAILS the house '
+        # One decimal: the test is b > 0.50 but the display was .0f, so 49.6%
+        # rendered "beats index 50% — FAILS" and 50.4% rendered "beats index
+        # 50% — clears", printing the same number for opposite verdicts.
+        note = (f'<small class="warn">beats index only {b*100:.1f}% — FAILS the house '
                 f'rule at this price</small>')
+    if b is not None and abs(b - 0.50) < 0.03:
+        # ~1.15pp of MC noise at n=1000 (measured over seeds 1-25), so a rung
+        # this close to the line is not a stable binary.
+        note += ('<small class="warn"> · within MC noise of the 50% line — '
+                 'treat as a coin flip, not a verdict</small>')
     return (f'<div class="row"><span class="k">Price for a {target*100:.0f}% return '
             f'<small>{label}</small></span>'
             f'<span class="v">{money(price)} {note}</span></div>')

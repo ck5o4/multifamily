@@ -112,6 +112,13 @@ def estimate_tax(price, location, commercial_share=0.0):
     commercial_share: fraction of value in non-residential use (mixed-use ground
     floor retail), assessed at 15% instead of 10%.
     """
+    # "30" meaning 30 percent returned a $276,000 bill on a $1.5M Gonzales
+    # building (16x the truth) and a negative share quietly cut the bill below
+    # the residential floor. defaults.py already guards its own fraction keys.
+    if not 0 <= commercial_share <= 1:
+        raise ValueError(
+            f"commercial_share must be a fraction between 0 and 1, got "
+            f"{commercial_share!r}. Use 0.3 for 30%.")
     parish, how = resolve_parish(location)
     if parish is None:
         return None, how
