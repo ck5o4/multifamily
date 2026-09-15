@@ -178,10 +178,13 @@ def cmd_snapshot():
     snapdir = DATA / "snapshots" / day
     snapdir.mkdir(parents=True, exist_ok=True)
     DATA.mkdir(exist_ok=True)
+    got = 0
     with open(OBS, "a") as obs:
         for w in wl:
             dest = snapdir / f"{w['slug']}.html"
             ok, code = fetch(w["url"], dest)
+            if ok:
+                got += 1
             if not ok:
                 print(f"  FAIL {w['name']}: http {code}")
                 rec = {"date": day, "slug": w["slug"], "name": w["name"],
@@ -197,7 +200,20 @@ def cmd_snapshot():
                        "min": prices[0] if prices else None,
                        "max": prices[-1] if prices else None}
             obs.write(json.dumps(rec) + "\n")
-    print(f"snapshot saved -> {snapdir}")
+    if got == 0:
+        # Every fetch failed. Leaving the dated folder behind would make the
+        # next staleness check read "snapshot taken today" over zero data, so
+        # the failure has to be visible: remove the empty dir and exit nonzero.
+        # The ok:False rows stay in observations.jsonl as the outage record.
+        try:
+            snapdir.rmdir()
+        except OSError:
+            pass
+        print(f"SNAPSHOT FAILED: 0 of {len(wl)} comps fetched - nothing saved. "
+              f"Check network egress to the comp sites; rents are unchanged since "
+              f"the last good snapshot.")
+        sys.exit(1)
+    print(f"snapshot saved -> {snapdir}  ({got} of {len(wl)} comps)")
 
 
 def _history():
