@@ -17,11 +17,25 @@ SOFFICE_CANDIDATES = [
     "/usr/local/bin/soffice",
 ]
 
+_WITHOUT_IT = (
+    "Without it, written inputs are saved but every formula reads as empty."
+)
+
 INSTALL_HINT = (
     "LibreOffice not found. Install it (required to recalculate formulas):\n"
-    "  brew install --cask libreoffice\n"
+    "  macOS:  brew install --cask libreoffice\n"
+    "  Debian: sudo apt-get install libreoffice-calc\n"
     "or download from https://www.libreoffice.org/download/\n"
-    "Without it, written inputs are saved but every formula reads as empty."
+    + _WITHOUT_IT
+)
+
+NO_CALC_HINT = (
+    "LibreOffice is installed at {soffice}, but the Calc import filter is not.\n"
+    "`soffice --convert-to xlsx` fails with 'source file could not be loaded' on\n"
+    "every spreadsheet, including a trivial one. libreoffice-core alone is not enough:\n"
+    "  Debian: sudo apt-get install libreoffice-calc\n"
+    "  macOS:  the .app bundle already includes it\n"
+    + _WITHOUT_IT
 )
 
 
@@ -40,11 +54,33 @@ def find_soffice():
     return None
 
 
+def calc_filter_present(soffice):
+    """Is the Calc (spreadsheet) import/export filter installed alongside soffice?
+
+    Sweep 2026-09-21: this container carries libreoffice-core but not
+    libreoffice-calc. `soffice` is on PATH, so find_soffice() reported recalc as
+    available, and every conversion then died with the opaque 'source file could
+    not be loaded' - after a full intake run. Detection is fail-open: an
+    unrecognised install layout returns True rather than blocking a working one.
+    """
+    program = Path(soffice).resolve().parent
+    if not program.is_dir():
+        return True
+    for pattern in ("*scfilt*", "*calc*"):
+        if any(program.glob(pattern)):
+            return True
+    # A real install always ships the Calc library next to the binary; a program
+    # dir we can read, with neither marker, is missing the filter.
+    return False
+
+
 def recalc(path, timeout=180):
     """Recalculate in place. Returns the path. Raises RecalcUnavailable."""
     soffice = find_soffice()
     if not soffice:
         raise RecalcUnavailable(INSTALL_HINT)
+    if not calc_filter_present(soffice):
+        raise RecalcUnavailable(NO_CALC_HINT.format(soffice=soffice))
     path = Path(path).resolve()
     with tempfile.TemporaryDirectory() as td:
         cmd = [soffice, "--headless", "--norestore", "--convert-to", "xlsx",

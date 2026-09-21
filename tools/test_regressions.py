@@ -4,6 +4,7 @@ Each test reproduces a bug that shipped and was caught by audit; a failure
 here means the fix regressed. Run: python3 tools/test_regressions.py
 """
 
+import re
 import sys
 
 import pymodel
@@ -741,6 +742,91 @@ def test_portfolio_status_excludes_non_operating_credits():
           "25,000" in out, out)
 
 
+def test_every_third_party_import_is_declared():
+    """Advertised features must not depend on undeclared packages.
+
+    2026-09-21: tools/parsers.py imported `fitz` (PyMuPDF) for the PDF path that
+    README and CLAUDE.md both advertise, while requirements.txt declared only
+    openpyxl. Every PDF in deal-intake/ raised ModuleNotFoundError on a fresh
+    container. This test walks the real import graph so the next undeclared
+    dependency fails here instead of on a live deal package.
+    """
+    import ast
+    import pathlib
+
+    tools = pathlib.Path(__file__).parent
+    stdlib = set(sys.stdlib_module_names)
+    local = {p.stem for p in tools.glob("*.py")}
+    declared = set()
+    for line in (tools.parent / "requirements.txt").read_text().splitlines():
+        line = line.split("#")[0].strip()
+        if line:
+            declared.add(re.split(r"[=<>!~\[]", line)[0].strip().lower())
+    # distribution name -> module name, where they differ
+    aliases = {"pymupdf": "fitz"}
+    declared |= {aliases[d] for d in list(declared) if d in aliases}
+
+    undeclared = {}
+    for p in sorted(tools.glob("*.py")):
+        for node in ast.walk(ast.parse(p.read_text())):
+            if isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                mods = [node.module]
+            else:
+                continue
+            for m in mods:
+                top = m.split(".")[0]
+                if top in stdlib or top in local or top.lower() in declared:
+                    continue
+                undeclared.setdefault(top, set()).add(p.name)
+
+    check("requirements.txt declares every third-party import in tools/",
+          not undeclared,
+          "; ".join(f"{m} <- {', '.join(sorted(f))}" for m, f in sorted(undeclared.items())))
+
+    # The specific one that shipped broken.
+    check("PyMuPDF (the PDF ingestion dependency) is declared",
+          "pymupdf" in declared,
+          f"declared={sorted(declared)}")
+
+
+def test_recalc_detects_a_missing_calc_filter():
+    """A soffice binary without the Calc filter must fail fast, not at convert time.
+
+    2026-09-21: this container ships libreoffice-core but not libreoffice-calc.
+    `soffice` was on PATH so find_soffice() reported recalc available, then every
+    conversion died with the opaque 'source file could not be loaded' - after a
+    full intake run had already written its inputs. Reproduced on a trivial
+    two-cell workbook, so it was the filter and not the model workbooks.
+    """
+    import tempfile
+    import pathlib
+
+    import recalc
+
+    with tempfile.TemporaryDirectory() as td:
+        # A program dir holding only the binary: the broken shape.
+        bare = pathlib.Path(td) / "bare"
+        bare.mkdir()
+        (bare / "soffice").write_text("#!/bin/sh\n")
+        check("recalc: soffice without the Calc filter is detected",
+              recalc.calc_filter_present(bare / "soffice") is False)
+
+        # The same dir once the Calc filter library is present.
+        (bare / "libscfiltlo.so").write_text("")
+        check("recalc: the Calc filter next to the binary is accepted",
+              recalc.calc_filter_present(bare / "soffice") is True)
+
+        # Fail open: an unrecognised layout must not block a working install.
+        check("recalc: an unreadable install layout does not block recalc",
+              recalc.calc_filter_present(pathlib.Path(td) / "nope" / "soffice") is True)
+
+    check("recalc: the install hint is not macOS-only",
+          "apt-get" in recalc.INSTALL_HINT and "brew" in recalc.INSTALL_HINT,
+          recalc.INSTALL_HINT)
+
+
 def main():
     print("REGRESSION TESTS (2026-08-09 sweep)")
     test_solve_not_false_unreachable()
@@ -774,6 +860,9 @@ def main():
     test_icmemo_tornado_keeps_every_downside_row()
     test_portfolio_sim_charges_idle_capital_once()
     test_portfolio_status_excludes_non_operating_credits()
+    print("REGRESSION TESTS (2026-09-21 sweep)")
+    test_every_third_party_import_is_declared()
+    test_recalc_detects_a_missing_calc_filter()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)

@@ -1,1 +1,5 @@
 openpyxl==3.1.5
+# PDF ingestion (tools/parsers.py: read_sheets, pdf_ocr_hint). Imported as `fitz`,
+# which PyMuPDF >=1.28 deprecates in favour of `import pymupdf` — the pin keeps the
+# `fitz` alias alive. Unpinning this breaks all PDF intake, so change the import first.
+PyMuPDF==1.28.2
