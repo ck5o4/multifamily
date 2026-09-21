@@ -1390,6 +1390,17 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
     base_going_in = base_run["going_in_cap"]
     base_insurance = inputs.get("insurance", 2000)
 
+    # The deal's own underwritten exit cap, if it carries one (sweep 2026-09-21).
+    # Until this sweep monte_carlo overwrote exit_cap with going_in + cap_delta on
+    # every draw and never read the input, so a deal underwritten at any other cap
+    # had its MC - and therefore its house-rule beats-index - scored at a cap the
+    # underwriting had rejected. mlk-2119 (workbook cap 7.50% vs 5.03% going-in)
+    # drew 100% of its caps BELOW its own underwriting: MC P50 -1.93% against a
+    # deterministic -9.79%. Same reasoning as the growth recentering below: the
+    # fitted SPREAD is what history evidences, the CENTER is the deal's own
+    # assumption. Deterministic stays authoritative; MC shows dispersion.
+    base_exit_cap = inputs.get("exit_cap")
+
     # Recenter MC vacancy on the deal's own underwriting (sweep 2026-08-09).
     # Analytic mean of the raw turnover process: E[turnover]x E[days]/365 +
     # E[frictional]; unit count cancels in expectation.
@@ -1425,7 +1436,12 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         rg_p10, rg_p50, rg_p90, inputs.get("rent_growth"), "rent growth")
     eg_p10, eg_p50, eg_p90, eg_note = _recenter(
         eg_p10, eg_p50, eg_p90, inputs.get("expense_growth"), "expense growth")
-    growth_note = "; ".join(n for n in (rg_note, eg_note) if n)
+    cap_note = ""
+    if base_exit_cap is not None:
+        cap_note = (f"MC exit cap centered on underwriting {base_exit_cap:.2%} "
+                    f"(going-in {base_going_in:.2%} + fitted P50 {cap_p50:.2%} "
+                    f"= {base_going_in + cap_p50:.2%}; fitted spread kept)")
+    growth_note = "; ".join(n for n in (rg_note, eg_note, cap_note) if n)
 
     # Weighted avg rent for RentCast lookup
     total_units = sum(g["units"] for g in inputs["unit_mix"])
@@ -1563,7 +1579,11 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         p["expense_growth"] = expense_growth
         p["vacancy"] = vacancy
         p["insurance"] = base_insurance * ins_mult
-        p["exit_cap"] = max(0.001, base_going_in + cap_delta)
+        if base_exit_cap is not None:
+            # Center on the deal's own underwritten cap, keep the fitted spread.
+            p["exit_cap"] = max(0.001, base_exit_cap + (cap_delta - cap_p50))
+        else:
+            p["exit_cap"] = max(0.001, base_going_in + cap_delta)
 
         # FIX 2: Vintage capex — override capex_unit for MC draws if age known
         if _eff_age is not None:

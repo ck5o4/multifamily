@@ -919,6 +919,103 @@ def test_parceltax_validates_commercial_share():
           abs(tax - 19_837.5) < 1.0, f"got {tax:,.2f}")
 
 
+def test_mc_honours_the_deals_own_exit_cap():
+    """MC must disperse around the underwritten exit cap, not invent its own.
+
+    2026-09-21: monte_carlo overwrote exit_cap with going_in + cap_delta on every
+    draw and never read inputs["exit_cap"], so a deal underwritten at any other
+    cap had its MC - and the house-rule beats-index scored off it - evaluated at
+    a cap the underwriting rejected. mlk-2119 (workbook 7.50% vs 5.03% going-in)
+    drew 100% of its caps BELOW its own: MC P50 -1.93% against a deterministic
+    -9.79%, i.e. the MC centre sat 7.9 points ABOVE the underwriting. Same
+    principle as the rent/expense growth recentering: fitted SPREAD, deal's CENTRE.
+    """
+    inputs = {k: v for k, v in pymodel._load_deal("mlk-2119").items()
+              if k != "location"}
+    det = pymodel.run(inputs)["levered_irr"]
+    mc = pymodel.monte_carlo(dict(inputs), n=400, seed=42, deal_name="mlk-2119")
+
+    check("MC: an explicit exit cap is reported as the MC centre",
+          "exit cap centered on underwriting" in (mc.get("growth_note") or ""),
+          f"note={mc.get('growth_note')!r}")
+    check("MC: P50 is not above a deeply negative deterministic IRR",
+          mc["p50"] < det,
+          f"MC P50 {mc['p50']:.2%} vs deterministic {det:.2%}")
+
+    # A deal whose exit cap already equals going-in + 50bps must be unchanged.
+    eden = {k: v for k, v in pymodel._load_deal("eden-church-mhp").items()
+            if k != "location"}
+    gi = pymodel.run(eden)["going_in_cap"]
+    check("MC: the live deals still carry exit_cap == going-in + 50bps",
+          abs(eden["exit_cap"] - round(gi + 0.005, 5)) < 1e-9,
+          f"exit_cap={eden['exit_cap']} going_in+50bp={round(gi + 0.005, 5)}")
+
+
+def test_portfolio_sim_credits_sales_before_it_buys():
+    """The capital-gap verdict must see this year's proceeds and this year's buys.
+
+    2026-09-21: running_bal was updated once per year, AFTER both the
+    acquisition loop and the distribution loop. Two opposite failures:
+      A) two deals in one year - the second was tested against cash the first
+         had already spent, so a real $17,802 shortfall raised NO flag and the
+         panel printed a negative year-0 balance;
+      B) buying in the year another deal sells - the test ran before the sale
+         was credited, inventing a $98,929 capital call against $175,953 of
+         proceeds received that same year, and the balance was then overstated
+         by exactly that phantom.
+    CLAUDE.md makes equity the binding constraint, so this is the verdict the
+    tool exists to give.
+    """
+    import copy
+    import json
+    import pathlib
+
+    import portfolio_sim
+
+    base = json.loads(
+        (pathlib.Path(__file__).parent.parent
+         / "portfolio" / "scenarios" / "baker-then-fourplex.json").read_text())
+
+    # A: both deals in year 0. Equity needed 138,472 + 179,330 = 317,802.
+    a = copy.deepcopy(base)
+    a["deals"][1]["year"] = 0
+    ra = portfolio_sim.simulate(a)
+    check("portfolio_sim: a same-year double purchase raises a capital gap",
+          any("Gonzales" in f for f in ra["gap_flags"]),
+          f"gap_flags={ra['gap_flags']}")
+    check("portfolio_sim: no year prints a negative running balance",
+          all(row["running_balance"] >= -0.01 for row in ra["annual_table"]),
+          f"balances={[round(r['running_balance']) for r in ra['annual_table'][:3]]}")
+
+    # B: buy in the year the first deal exits, funded by its proceeds.
+    b = copy.deepcopy(base)
+    b["starting_equity"] = 145_000
+    b["deals"][1]["year"] = 5
+    rb = portfolio_sim.simulate(b)
+    check("portfolio_sim: proceeds received this year fund this year's purchase",
+          not rb["gap_flags"],
+          f"invented gap: {rb['gap_flags']}")
+
+    yr5 = next(r for r in rb["annual_table"] if r["year"] == 5)
+    yr4 = next(r for r in rb["annual_table"] if r["year"] == 4)
+    expected = yr4["running_balance"] + yr5["cash_in"] - yr5["cash_out"]
+    check("portfolio_sim: the year-5 balance is prior + in - out",
+          abs(yr5["running_balance"] - expected) < 1.0,
+          f"printed {yr5['running_balance']:,.0f} vs {expected:,.0f}")
+
+    # The ledger must close every year, on the shipped scenario.
+    rs = portfolio_sim.simulate(copy.deepcopy(base))
+    bal = rs["starting_equity"]
+    for row in rs["annual_table"]:
+        bal = bal + row["cash_in"] - row["cash_out"]
+        if abs(bal - row["running_balance"]) > 1.0:
+            check(f"portfolio_sim: balance ties in year {row['year']}", False,
+                  f"{row['running_balance']:,.0f} vs {bal:,.0f}")
+            break
+    else:
+        check("portfolio_sim: the running balance ties every year", True)
+
+
 def main():
     print("REGRESSION TESTS (2026-08-09 sweep)")
     test_solve_not_false_unreachable()
@@ -958,6 +1055,8 @@ def main():
     test_plural_totals_row_is_not_a_unit_type()
     test_rent_column_is_chosen_by_preference_not_position()
     test_parceltax_validates_commercial_share()
+    test_mc_honours_the_deals_own_exit_cap()
+    test_portfolio_sim_credits_sales_before_it_buys()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)

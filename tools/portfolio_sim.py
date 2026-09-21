@@ -221,6 +221,36 @@ def simulate(scenario):
         cash_out_equity = 0.0   # equity deployed to buy deals this year
         cash_in_dist = 0.0      # CFADS / exit received this year
 
+        # --- Receive distributions FIRST, then buy (sweep 2026-09-21) ---
+        # running_bal used to be updated once, at the end of the year, after
+        # both loops. That broke the capital-gap test in both directions:
+        #   - two deals in one year: the second was tested against cash the
+        #     first had already spent, so a real $17,802 shortfall raised NO
+        #     flag and the panel printed a negative balance;
+        #   - buying in the year another deal sells: the test ran before the
+        #     sale was credited, inventing a $98,929 capital call against
+        #     $175,953 of proceeds received that same year, and `running_bal +=
+        #     shortfall` then overstated the closing balance by exactly that.
+        # A deal acquired in year `yr` pays nothing in year `yr` (the loop below
+        # requires i > 0), so crediting before buying introduces no circularity.
+        # CLAUDE.md makes equity the binding constraint, so this verdict is the
+        # reason the tool exists.
+        for dr in deal_results:
+            idx = dr["_idx"]
+            i = yr - dr["acq_year"]
+            cf = deal_cfads.get((idx, yr))
+            if cf is not None and i > 0:
+                if cf >= 0:
+                    cash_in_dist += cf
+                else:
+                    # Negative CFADS (e.g. deeply negative deal): count as cost
+                    cash_out_equity += abs(cf)
+                    running_bal -= abs(cf)
+
+        savings = annual_savings if yr > 0 else 0.0
+        cash_in_total = cash_in_dist + savings
+        running_bal += cash_in_total
+
         # --- Acquire deals whose year == yr ---
         for dr in deal_results:
             if dr["acq_year"] == yr and dr["_idx"] not in acquired:
@@ -253,27 +283,11 @@ def simulate(scenario):
                 port_cf[yr] -= eq
 
                 cash_out_equity += eq
+                # Deduct as it is spent, so the next buy in the SAME year is
+                # tested against what is actually left.
+                running_bal -= eq
                 cumulative_deployed += eq
                 peak_deployed = max(peak_deployed, cumulative_deployed)
-
-        # --- Receive distributions from active deals (lev_cf index >= 1) ---
-        for dr in deal_results:
-            idx = dr["_idx"]
-            i = yr - dr["acq_year"]
-            cf = deal_cfads.get((idx, yr))
-            if cf is not None and i > 0:
-                if cf >= 0:
-                    cash_in_dist += cf
-                else:
-                    # Negative CFADS (e.g. deeply negative deal): count as cost
-                    cash_out_equity += abs(cf)
-
-        # --- Annual savings (external inflow yr 1+) ---
-        savings = annual_savings if yr > 0 else 0.0
-        cash_in_total = cash_in_dist + savings
-
-        # Update running balance: what we have before next year's events
-        running_bal = running_bal - cash_out_equity + cash_in_total
 
         # Record distributions + savings in port_cf
         port_cf[yr] += cash_in_dist + savings
