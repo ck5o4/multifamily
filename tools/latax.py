@@ -106,6 +106,21 @@ def resolve_parish(location):
                   "Port Allen, Plaquemine. Or name the parish directly.")
 
 
+def validate_commercial_share(commercial_share):
+    """Reject a percentage typed where a fraction belongs. Raises ValueError.
+
+    Lives here so every caller shares one guard. parceltax.py did its own ratio
+    arithmetic from the imported constants and so bypassed this entirely until
+    the 2026-09-21 sweep - and parceltax is the tool run immediately before an
+    offer, against one of CLAUDE.md's hard pre-offer gates.
+    """
+    if not 0 <= commercial_share <= 1:
+        raise ValueError(
+            f"commercial_share must be a fraction between 0 and 1, got "
+            f"{commercial_share!r}. Use 0.3 for 30%.")
+    return commercial_share
+
+
 def estimate_tax(price, location, commercial_share=0.0):
     """-> (annual_tax, explanation) or (None, reason).
 
@@ -115,10 +130,7 @@ def estimate_tax(price, location, commercial_share=0.0):
     # "30" meaning 30 percent returned a $276,000 bill on a $1.5M Gonzales
     # building (16x the truth) and a negative share quietly cut the bill below
     # the residential floor. defaults.py already guards its own fraction keys.
-    if not 0 <= commercial_share <= 1:
-        raise ValueError(
-            f"commercial_share must be a fraction between 0 and 1, got "
-            f"{commercial_share!r}. Use 0.3 for 30%.")
+    validate_commercial_share(commercial_share)
     parish, how = resolve_parish(location)
     if parish is None:
         return None, how

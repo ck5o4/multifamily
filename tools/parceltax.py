@@ -19,7 +19,8 @@ is exactly why reassessment risk is real.
 import argparse
 import sys
 
-from latax import MILLAGE, ASSESSMENT_RATIO_RESIDENTIAL, ASSESSMENT_RATIO_COMMERCIAL
+from latax import (MILLAGE, ASSESSMENT_RATIO_RESIDENTIAL,
+                   ASSESSMENT_RATIO_COMMERCIAL, validate_commercial_share)
 
 
 def main():
@@ -33,6 +34,11 @@ def main():
     ap.add_argument("--commercial-share", type=float, default=0.0,
                     help="fraction of value assessed at the 15%% commercial ratio")
     args = ap.parse_args()
+
+    try:
+        validate_commercial_share(args.commercial_share)
+    except ValueError as e:
+        raise SystemExit(f"error: {e}")
 
     parish = args.parish.lower().strip()
     if parish not in MILLAGE:

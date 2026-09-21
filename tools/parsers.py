@@ -22,7 +22,12 @@ RENT_MIN, RENT_MAX = 200, 20000
 SF_MIN, SF_MAX = 100, 6000
 COUNT_MAX = 5000
 
-TOTAL_ROW_RE = re.compile(r"^\s*(total|subtotal|sub-total|average|avg|sum|grand)\b", re.I)
+# Plurals matter: the \b after a bare "total" does not match "Totals", so a
+# "Totals" subtotal row survived as a unit type (sweep 2026-09-21). A totals row
+# whose SF and rent sums fall under SF_MAX/RENT_MAX looks exactly like a large
+# unit, so nothing downstream catches it.
+TOTAL_ROW_RE = re.compile(
+    r"^\s*(totals?|sub-?totals?|averages?|avg|sums?|grand)\b", re.I)
 
 
 def to_num(s):
@@ -155,8 +160,28 @@ def canonical_type(beds, baths):
 
 _HDR_TYPE = ("unit type", "floorplan", "floor plan", "unit desc", "description", "plan", "type", "style")
 _HDR_SF = ("sqft", "sq ft", "sq. ft", "square", "area", "size", "nrsf", "sf")
-_HDR_RENT = ("market rent", "actual rent", "current rent", "scheduled rent", "lease rent", "rent", "asking")
+# Rent-column preference, most conservative first. Underwriting runs on IN-PLACE
+# rent; "market rent" is the seller's aspiration and belongs last. Before the
+# 2026-09-21 sweep this tuple was ordered market-first AND was dead code anyway -
+# _find_header took whichever rent-ish column appeared leftmost, so a Yardi export
+# ordering Market before Current silently underwrote the building at asking rents
+# and suppressed the zero-rent vacancy warning with it.
+_HDR_RENT = ("actual rent", "current rent", "in place rent", "in-place rent",
+             "lease rent", "scheduled rent", "rent", "market rent", "asking")
 _HDR_COUNT = ("# of units", "# units", "no. of units", "number of units", "unit count", "units", "qty", "count")
+
+
+def _rent_rank(header_cell):
+    """Position of the most-preferred _HDR_RENT keyword this header matches.
+
+    Lower is better; None means the cell is not a rent column. Longer keywords
+    are tested first so "market rent" is not scored as the bare "rent".
+    """
+    ranked = sorted(enumerate(_HDR_RENT), key=lambda kv: -len(kv[1]))
+    for rank, keyword in ranked:
+        if keyword in header_cell:
+            return rank
+    return None
 
 
 def _find_header(rows):
@@ -168,6 +193,7 @@ def _find_header(rows):
         if not (has_rent and (has_type or has_sf) and len(row) >= 2):
             continue
         idx = {}
+        rent_cands = []
         for j, c in enumerate(low):
             if not c:
                 continue
@@ -180,9 +206,19 @@ def _find_header(rows):
             if "sf" not in idx and any(k in c for k in _HDR_SF):
                 idx["sf"] = j
                 continue
-            if "rent" not in idx and any(k in c for k in _HDR_RENT):
-                idx["rent"] = j
-        if "rent" in idx:
+            rank = _rent_rank(c)
+            if rank is not None:
+                rent_cands.append((rank, j, row[j]))
+        if rent_cands:
+            # Preference order decides, NOT column position: a roll listing
+            # Market Rent left of Current Rent must still underwrite in-place.
+            rank, j, label = min(rent_cands, key=lambda t: (t[0], t[1]))
+            idx["rent"] = j
+            idx["rent_label"] = str(label).strip()
+            if len(rent_cands) > 1:
+                idx["rent_alternates"] = [str(l).strip()
+                                          for _, jj, l in sorted(rent_cands, key=lambda t: t[1])
+                                          if jj != j]
             return i, idx
     return None, None
 

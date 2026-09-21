@@ -827,6 +827,98 @@ def test_recalc_detects_a_missing_calc_filter():
           recalc.INSTALL_HINT)
 
 
+def test_plural_totals_row_is_not_a_unit_type():
+    """A 'Totals' subtotal row must not be parsed as a unit.
+
+    2026-09-21: TOTAL_ROW_RE ended in \\b after a bare 'total', so 'Total'
+    matched but 'Totals' did not. The row survived because its summed SF (3,000)
+    and summed rent both sit inside SF_MAX/RENT_MAX, so it looked like one large
+    unit. On a 4-unit fixture it added a phantom 5th unit at $3,450/mo:
+    NOI $15,422 -> $46,794, IRR -1.23% -> +22.27%. A hard PASS reads as "ideal".
+    """
+    import parsers
+
+    for label in ("Total", "Totals", "TOTALS", "Subtotal", "Subtotals",
+                  "Sub-Totals", "Average", "Averages", "Grand Total"):
+        check(f"rent roll: '{label}' row is suppressed",
+              bool(parsers.TOTAL_ROW_RE.match(label)))
+
+
+def test_rent_column_is_chosen_by_preference_not_position():
+    """In-place rent must win over market rent whatever the column order.
+
+    2026-09-21: _find_header scanned columns left-to-right and took the first
+    rent-ish header, so the _HDR_RENT preference tuple was dead code - and that
+    tuple listed 'market rent' FIRST, so honouring it as written would have been
+    worse. A Yardi-ordered roll (Market before Current) underwrote baker-trails
+    at asking rents: 2BR $725 -> $838, NOI +24.1%, the 13% clearing price
+    +$104,111, and - worst - the four $0 vacant rows picked up a market rent, so
+    both the zero-rent note and the 33.3% implied-vacancy warning vanished.
+    """
+    import parsers
+
+    hdr = ["Unit", "Unit Type", "SqFt", "Market Rent", "Current Rent"]
+    body = ["101", "2BR/1BA", "750", "838", "725"]
+    _, idx = parsers._find_header([hdr, body])
+    check("rent roll: Current Rent wins even when Market Rent is left of it",
+          idx.get("rent_label", "").lower() == "current rent",
+          f"chose {idx.get('rent_label')!r}")
+
+    # The same roll in the other order must resolve identically.
+    hdr2 = ["Unit", "Unit Type", "SqFt", "Current Rent", "Market Rent"]
+    body2 = ["101", "2BR/1BA", "750", "725", "838"]
+    _, idx2 = parsers._find_header([hdr2, body2])
+    check("rent roll: column order does not change which rent is underwritten",
+          idx2.get("rent_label", "").lower() == "current rent",
+          f"chose {idx2.get('rent_label')!r}")
+
+    check("rent roll: the rent column that lost is still reported",
+          idx.get("rent_alternates") == ["Market Rent"],
+          f"alternates={idx.get('rent_alternates')}")
+
+    # Preference ranking itself: actual/current beat market/asking.
+    check("rent roll: 'actual rent' outranks 'market rent'",
+          parsers._rent_rank("actual rent") < parsers._rent_rank("market rent"))
+    check("rent roll: 'current rent' outranks the bare 'rent'",
+          parsers._rent_rank("current rent") < parsers._rent_rank("rent"))
+
+
+def test_parceltax_validates_commercial_share():
+    """The pre-offer gate tool must reject a percentage typed as a fraction.
+
+    2026-09-21: the 2026-09-07 guard landed only in latax.estimate_tax.
+    parceltax.py imported the two ratio constants and did its own arithmetic, so
+    it never reached the guard: --commercial-share 30 printed a $276,000/yr bill
+    on a $1.5M Ascension building (16x the $17,250 truth), and -0.5 printed
+    $12,938 - 25% BELOW the residential floor, with no warning. parceltax is run
+    immediately before an offer, against a CLAUDE.md hard gate.
+    """
+    import latax
+    import parceltax
+
+    check("parceltax imports the shared guard",
+          parceltax.validate_commercial_share is latax.validate_commercial_share)
+
+    for bad in (30, -0.5, 1.5):
+        try:
+            latax.validate_commercial_share(bad)
+            check(f"commercial_share {bad} is rejected", False, "accepted")
+        except ValueError:
+            check(f"commercial_share {bad} is rejected", True)
+
+    for good in (0, 0.3, 1):
+        try:
+            latax.validate_commercial_share(good)
+            check(f"commercial_share {good} is accepted", True)
+        except ValueError as e:
+            check(f"commercial_share {good} is accepted", False, str(e))
+
+    # The guard must not have changed the arithmetic it protects.
+    tax, _ = latax.estimate_tax(1_500_000, "ascension", 0.3)
+    check("latax: 30% commercial on $1.5M Ascension is $19,838/yr",
+          abs(tax - 19_837.5) < 1.0, f"got {tax:,.2f}")
+
+
 def main():
     print("REGRESSION TESTS (2026-08-09 sweep)")
     test_solve_not_false_unreachable()
@@ -863,6 +955,9 @@ def main():
     print("REGRESSION TESTS (2026-09-21 sweep)")
     test_every_third_party_import_is_declared()
     test_recalc_detects_a_missing_calc_filter()
+    test_plural_totals_row_is_not_a_unit_type()
+    test_rent_column_is_chosen_by_preference_not_position()
+    test_parceltax_validates_commercial_share()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)
