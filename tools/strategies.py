@@ -73,8 +73,16 @@ def compare(deal_workbook, spec, lp_capital=None):
     # floor inverted that on any sub-5.5% going-in deal: it printed an exit cap
     # ABOVE the base case and an IRR 8-11 points BELOW the honest scenario it
     # was meant to bracket (cannon -12.1% under "UPSIDE ONLY"). (sweep 2026-08-24)
-    hot_cap = min(honest_cap - 0.005, max(0.045, honest_cap - 0.015))
-    if hot_cap >= honest_cap:
+    # Sweep 2026-09-28: `min(honest_cap - 0.005, max(0.045, honest_cap - 0.015))`
+    # defeated its own 4.5% floor - the outer min() overrode the max(), so a
+    # 4.50% honest cap produced a 4.00% hot cap and a 4.80% honest cap produced
+    # 4.30%, both BELOW the floor the comment claims. And because the result was
+    # always <= honest_cap - 0.005, the `hot_cap >= honest_cap` suppression
+    # branch below was unreachable DEAD CODE: on a sub-5% going-in deal the tool
+    # printed an UPSIDE line at a sub-4.5% exit cap instead of suppressing it.
+    _HOT_FLOOR = 0.045
+    hot_cap = honest_cap - 0.015
+    if hot_cap < _HOT_FLOOR or hot_cap >= honest_cap:
         print(f"    {'-'*70}")
         print("    Hot-market upside scenario suppressed: no credible compressed exit "
               f"cap below the {honest_cap*100:.2f}% going-in without dropping under 4.5%.")

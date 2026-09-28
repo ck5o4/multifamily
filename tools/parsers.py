@@ -17,6 +17,7 @@ from statistics import median
 import openpyxl
 
 NUM_RE = re.compile(r"^\(?-?\$?\s*[\d,]+(?:\.\d+)?\)?$")
+_DIGITS_RE = re.compile(r"\d+(?:\.\d+)?$")
 
 RENT_MIN, RENT_MAX = 200, 20000
 SF_MIN, SF_MAX = 100, 6000
@@ -29,6 +30,24 @@ COUNT_MAX = 5000
 TOTAL_ROW_RE = re.compile(
     r"^\s*(totals?|sub-?totals?|averages?|avg|sums?|grand)\b", re.I)
 
+# Sweep 2026-09-28: the ^ anchor above only catches labels that BEGIN with a
+# total word, so "Building Totals", "Property Total", "Portfolio Total",
+# "Summary" and "All Units" still parsed as a unit type. On any deal under
+# ~15 units the summed rent stays inside RENT_MAX, so the row reads as one
+# large unit - the identical shape and magnitude as the CRITICAL "Totals" bug
+# fixed 2026-09-21. On a 6-unit fixture a "Building Totals" row took levered
+# IRR from -0.83% to +32.69%.
+# "grand"/"avg"/"sum" stay anchored deliberately: searched anywhere they would
+# eat a property named "Grand Isle" or a unit type "Avg 2BR".
+_TOTAL_ROW_ANYWHERE_RE = re.compile(
+    r"\b(totals?|sub-?totals?|averages?|summary|all\s+units)\b", re.I)
+
+
+def is_total_row(label):
+    """True when a rent-roll label is a totals/subtotal/summary row."""
+    s = str(label or "")
+    return bool(TOTAL_ROW_RE.match(s) or _TOTAL_ROW_ANYWHERE_RE.search(s))
+
 
 def to_num(s):
     if s is None:
@@ -38,10 +57,30 @@ def to_num(s):
     if isinstance(s, (int, float)):
         return float(s)
     t = str(s).strip()
-    if not t or not NUM_RE.match(t):
+    if not t:
         return None
-    neg = t.startswith("(") and t.endswith(")")
-    t = t.strip("()").replace("$", "").replace(",", "").strip()
+    # Sweep 2026-09-28: accounting exports write a negative four ways the old
+    # NUM_RE rejected outright, and a rejected amount on a MATCHED expense line
+    # was then dropped with NO note (`if not nums: continue` below) - the
+    # category had matched, so it never reached `unmapped` either. A seller's
+    # insurance of "$(84,000)" vanished and the $2,000/unit template was used
+    # instead: NOI +$36,000, levered IRR +2.70% where the truth was -2.32%.
+    #   "$(48,000)"   currency INSIDE accounting parens (Yardi/QuickBooks/Excel)
+    #   "−18,120"     unicode minus (routine in PDF text extraction)
+    #   "12,360-"     trailing minus
+    # An UNBALANCED paren ("(1,200") is a split or truncated cell, not a number.
+    # The old regex accepted it and returned +1200 - a silent SIGN FLIP.
+    if t.count("(") != t.count(")"):
+        return None
+    neg = "(" in t and ")" in t
+    t = t.replace("(", "").replace(")", "").replace("−", "-")
+    t = t.replace("$", "").replace(",", "").strip()
+    if t.endswith("-"):
+        neg, t = True, t[:-1].strip()
+    if t.startswith("-"):
+        neg, t = True, t[1:].strip()
+    if not _DIGITS_RE.fullmatch(t):
+        return None
     try:
         v = float(t)
     except ValueError:
@@ -235,7 +274,7 @@ def _rent_records(rows):
         for row in rows[hi + 1:]:
             if not any(str(c).strip() for c in row):
                 continue
-            if TOTAL_ROW_RE.match(str(row[0]) if row else ""):
+            if is_total_row(row[0] if row else ""):
                 continue
 
             def get(key):
@@ -243,7 +282,7 @@ def _rent_records(rows):
                 return row[j] if j is not None and j < len(row) else None
 
             label = str(get("type") or "").strip()
-            if TOTAL_ROW_RE.match(label):
+            if is_total_row(label):
                 continue
             if label.lower() in _HDR_TYPE or label.lower() in ("unit", "units", "unit no", "apt"):
                 continue  # repeated header row inside a stacked table
@@ -283,7 +322,7 @@ def _rent_records(rows):
         fallback = True
         cand = []
         for row in rows:
-            if TOTAL_ROW_RE.match(str(row[0]) if row else ""):
+            if is_total_row(row[0] if row else ""):
                 continue
             bb = parse_bed_bath(_nondate_text(row))
             if not bb:
@@ -447,8 +486,17 @@ _T12_MAP = [
     ("mgmt_pct", ("management fee", "mgmt fee", "property management")),
     ("marketing", ("marketing", "advertis", "promotion", "leasing", "locator")),
     ("rm", ("repair", "maintenance", "r&m", "turnover", "make ready", "make-ready")),
-    ("contract_services", ("contract", "landscap", "pest", "janitor", "security", "grounds", "pool service")),
-    ("utilities", ("utilit", "water", "sewer", "electric", "gas", "trash", "waste")),
+    # "lawn"/"mow" and "garbage"/"refuse"/"sanitation" were absent, though
+    # tools/README.md already promised trash/waste keys into one of these two.
+    # Live 2026-09-28: eden-church-mhp/PL_2025_ACTUALS.xlsx carries "Lawn Care"
+    # $3,600/yr and hwy42-mhp/'P&L 2025.xlsx' "Lawn Care" $4,000/yr - both fell
+    # into the unmapped note instead of an expense line. ("Garbage" $3,936 on
+    # eden happens to be inside the hand-set $802/unit utilities figure, so that
+    # one is not a live error - the keyword gap is.)
+    ("contract_services", ("contract", "landscap", "lawn", "mow", "pest", "janitor",
+                           "security", "grounds", "pool service")),
+    ("utilities", ("utilit", "water", "sewer", "electric", "gas", "trash", "waste",
+                   "garbage", "refuse", "sanitation")),
     ("ga", ("general", "administrat", "admin", "office", "legal", "accounting", "bank charge")),
     ("other", ("other", "miscellaneous", "misc")),
 ]
@@ -462,6 +510,14 @@ _SKIP = ("total", "net operating", "noi", "gross", "subtotal", "effective", "inc
 # 2026-08-05: the old ^total\b stop silently dropped every expense line after
 # the first subtotal (insurance/taxes/R&M lost on grouped statements).
 _STOP_RE = re.compile(r"^\s*(total\s+(operating|expenses?)\b|net operating|noi\b)", re.I)
+
+# A line that OFFSETS the expense it names, rather than adding to it.
+# "recovery" is deliberately absent: "Utility Recovery" is a credit but
+# "Recovery Services" is a vendor, and the false positive flips a real cost
+# negative. Rebate/refund/reimburs/credit are unambiguous on an expense row.
+# The (?!\s*card) guard is load-bearing: "Credit Card Fees" is an ordinary G&A
+# bank charge, and matching it would flip a real expense negative.
+_CREDIT_RE = re.compile(r"\b(rebate|refund|reimburs\w*|credit)s?\b(?!\s*card)", re.I)
 
 # "'Flood Ins' / 'Hazard & Liability Ins'": bare 'ins'/'ins.' at word end is
 # insurance shorthand; 'painting'/'maintenance' must not match.
@@ -483,19 +539,35 @@ def _find_total_col(rows):
         low = [str(c).lower().strip() for c in row]
         if sum(1 for c in low if c) < 2:
             continue  # single-cell row = title, not a header
+        hits = []
         for j, c in enumerate(low):
             if not c or len(c) > 24:
                 continue
             if any(k in c for k in _NOT_TOTAL_HDR):
                 continue
             if any(c == k or c.startswith(k) or k in c for k in _TOTAL_HDR):
-                return i, j
-    return None, None
+                hits.append(j)
+        if hits:
+            # Sweep 2026-09-28: this used to return the FIRST match, so a
+            # two-year statement headed "Total 2024 | Total 2025" was parsed on
+            # 2024 - silently underwriting the older, smaller year. On the
+            # control fixture that read payroll $28,000 instead of $41,160 and
+            # insurance $21,000 instead of $48,000: NOI $154,752 vs $101,112,
+            # levered IRR 16.66% vs 2.70% - a false PURSUE at the 16% rung.
+            # The rightmost total-ish column is the most recent period.
+            return i, hits[-1], hits, [str(row[j]).strip() for j in hits]
+    return None, None, [], []
 
 
 def _t12_from_rows(rows):
     """-> (lines, matched_row_count, notes, has_total_col)"""
-    hi, tcol = _find_total_col(rows)
+    hi, tcol, tcol_idxs, tcol_hdrs = _find_total_col(rows)
+    # The part-year detector counts populated PERIOD cells left of the total
+    # column. When a statement carries several total columns ("Total 2024 |
+    # Total 2025") the cells left of the chosen one are the OTHER totals, not
+    # months - counting them read a legitimate two-year statement as a
+    # "1-month partial year". Count only up to the FIRST total column.
+    period_hi = tcol_idxs[0] if tcol_idxs else tcol
     out, lnotes = {}, []
     matched = 0
     seen = {}      # normalized label -> last annual (duplicate-label guard)
@@ -531,41 +603,95 @@ def _t12_from_rows(rows):
                     unmapped[label] = max(amts)
             continue
 
+        # A credit/refund line OFFSETS the expense it names; abs() made it ADD.
+        # Sweep 2026-09-28: "Insurance 48,000" + "Insurance Rebate (6,000)"
+        # came to $54,000 where the truth is $42,000; "Utilities 18,120" +
+        # "Utility Reimbursement -4,800" to $22,920 against $13,320. Direction
+        # KILLS deals (opex overstated $21,600/yr on the control fixture,
+        # levered IRR 1.00% vs 4.83%), so it never produced a false PURSUE -
+        # but it is still a wrong number on every statement that nets credits.
+        is_credit = bool(_CREDIT_RE.search(low))
+
         annual, basis = None, None
         if tcol is not None and tcol < len(cells_raw):
             v = to_num(cells_raw[tcol])
             if v is not None:
-                annual, basis = abs(v), f"column {tcol + 1} under total header"
+                # A credit reduces the line regardless of how the export signs
+                # it: some write "(6,000)", some a bare "6,000" under a
+                # "Rebate" label. -abs() is right either way.
+                annual = -abs(v) if is_credit else abs(v)
+                basis = f"column {tcol + 1} under total header"
+                if tcol_hdrs:
+                    basis += f" ({tcol_hdrs[-1]!r})"
+                if is_credit:
+                    basis += " [credit - offsets the line it names]"
                 # Count the populated period cells feeding that total, so a
                 # part-year statement cannot be read as annual (sweep
                 # 2026-08-24). hwy42's 'P&L YTD 2026.xlsx' has JAN-JUN only:
                 # every expense line came back at half its annual size, with
                 # basis still reading 'under total header'.
-                _periods = sum(1 for c in cells_raw[1:tcol]
+                _periods = sum(1 for c in cells_raw[1:period_hi]
                                if (to_num(c) or 0) != 0)
                 if 0 < _periods < 12:
                     period_counts.append(_periods)
         if annual is None:
-            nums = [abs(n) for n in (to_num(c) for c in cells[1:]) if n is not None]
-            if not nums:
+            signed = [n for n in (to_num(c) for c in cells[1:]) if n is not None]
+            nums = signed if is_credit else [abs(n) for n in signed]
+            if not signed:
+                # The category MATCHED but no cell parsed as a number. Before
+                # 2026-09-28 this fell through `continue` silently: the line was
+                # not in `unmapped` (the category had matched) and no note fired,
+                # so a real expense simply disappeared and the template default
+                # was used in its place.
+                lnotes.append(
+                    f"{label!r} matched an expense category but no amount on the "
+                    f"row could be parsed - NOT captured "
+                    f"(cells: {'; '.join(cells[1:]) or '(none)'})")
                 continue
-            if len(nums) == 12:
-                annual, basis = sum(nums), "sum of 12 monthly columns"
+            if len(nums) >= 12:
+                # Sweep 2026-09-28: the test was `== 12`, so 12 monthly columns
+                # plus ANY 13th (a "Per Unit/Yr" or "% of EGR" column, routine on
+                # broker statements) fell through to "last plausible value" and
+                # read that 13th cell as the ANNUAL figure. intake then divided
+                # by units a SECOND time: payroll $41,160 -> $1,715 -> $71/unit.
+                # Opex understated $137,655/yr; NOI $238,824 vs $101,112; levered
+                # IRR 37.70% vs 2.70% - clearing even the 22% "ideal" rung.
+                annual, basis = sum(nums[:12]), "sum of 12 monthly columns"
+                if len(nums) > 12:
+                    basis += (f" (ignored {len(nums) - 12} trailing column(s); "
+                              f"a 13th column is per-unit or a ratio, not an annual total)")
             else:
-                big = [n for n in nums if n >= 100]
+                big = [n for n in nums if abs(n) >= 100]
                 annual = (big or nums)[-1]
                 basis = ("last plausible value (totals column empty on this line)"
                          if tcol is not None else "last plausible value (no total header found)")
+            if is_credit:
+                annual = -abs(annual)
+                basis += " [credit - offsets the line it names]"
 
         matched += 1
         prev = seen.get(low)
         if prev is not None:
-            # Same label again = a later block of the sheet (budget vs actual);
-            # the later block is the more current figure. Never sum duplicates.
-            out[key]["annual"] += annual - prev
-            lnotes.append(f"duplicate {label!r} lines: kept last (${annual:,.0f}), "
-                          f"ignored ${prev:,.0f}")
-        elif key in out:
+            # Sweep 2026-09-28: this kept the LAST block on the theory that
+            # "later = more current". On real broker statements the later block
+            # is the seller's PRO FORMA, not the actual. Live on
+            # hwy42-mhp/'P&L 2025.xlsx': rows 41-50 are 2025 actuals (Electric
+            # -6,176, annotated "2025 included Air B&B rentals"); rows 60-69
+            # repeat every label with the seller's 2026-adjusted figures
+            # (Electric -1,200, "Adjusted for 2026 No Air B&B"). Keeping last
+            # discarded $4,976/yr of real utility cost on a 30-pad park paying
+            # electric, trash and a private sewer plant - $71,086 of price at a
+            # 7% cap. A stacked multi-building statement fails the same way.
+            # Keep the LARGER figure: on an expense that is the conservative
+            # read, and it is the only choice that cannot manufacture a PURSUE.
+            keep, drop = max(annual, prev), min(annual, prev)
+            out[key]["annual"] += keep - prev
+            lnotes.append(f"duplicate {label!r} lines: kept larger (${keep:,.0f}), "
+                          f"ignored ${drop:,.0f} - if the smaller figure is the "
+                          f"right one, set it explicitly with --set")
+            seen[low] = keep
+            continue
+        if key in out:
             out[key]["annual"] += annual
             out[key]["label"] += f" + {label}"
         else:

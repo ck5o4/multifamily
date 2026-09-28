@@ -147,6 +147,15 @@ def build_html(deal, v, s, mix, years, pd, failing=None, prov=None):
     loan = v.get("loan_amount")
     reno = v.get("reno_budget") or 0
     equity = v.get("total_equity")
+    # Sweep 2026-09-28: the package printed total_equity under the headings
+    # "Cash In (Sponsor Side)" and "Total cash committed to this acquisition" -
+    # i.e. it reported the LP's money as the sponsor's, ~10x over (eden equity
+    # $471,472 = LP $424,325 + GP $47,147; treme $267,345 -> GP $26,735; baker
+    # $317,191 -> GP $31,719). A lender judging sponsor skin-in-the-game under a
+    # heading literally labelled "Sponsor" was given ten times the true figure.
+    # Both numbers were already being read off the workbook and discarded.
+    lp_capital = v.get("lp_capital")
+    gp_capital = v.get("gp_capital")
     units = v.get("total_units")
     today = date.today().strftime("%B %Y")
 
@@ -239,7 +248,7 @@ def build_html(deal, v, s, mix, years, pd, failing=None, prov=None):
   <div class="kpi"><div class="n">{money(loan)}</div><div class="l">Loan Amount</div></div>
   <div class="kpi"><div class="n">{pct(s.get('ltv'), 0)}</div><div class="l">Max LTV</div></div>
   <div class="kpi"><div class="n">{x2(v.get('dscr_yr1'))}</div><div class="l">Year-1 DSCR</div></div>
-  <div class="kpi"><div class="n">{money(equity)}</div><div class="l">Cash In (Sponsor Side)</div></div>
+  <div class="kpi"><div class="n">{money(gp_capital if gp_capital is not None else equity)}</div><div class="l">Sponsor Cash (GP)</div></div>
 </div>
 <table>
   {row('Purchase price', money(price))}
@@ -253,8 +262,10 @@ def build_html(deal, v, s, mix, years, pd, failing=None, prov=None):
 <p><span class="fill">[FILL: 3-4 sentence bio - background, Stoa Group experience
 (1,995-unit Gulf Coast developer/operator), why this market]</span></p>
 <table>
-  {row('Total cash committed to this acquisition', money(equity), bold=True)}
-  {row('Capital source', 'Family investor equity + sponsor cash')}
+  {row('Sponsor cash (GP)', money(gp_capital), bold=True)}
+  {row('Investor equity (LP)', money(lp_capital))}
+  {row('Total equity into the acquisition', money(equity), bold=True)}
+  {row('Capital source', 'Family investor equity (LP) + sponsor cash (GP)')}
   {row('Property management', '<span class="fill">[FILL: third-party PM company name]</span> (professional third-party management)')}
 </table>
 

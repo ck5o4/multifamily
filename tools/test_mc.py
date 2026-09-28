@@ -406,13 +406,16 @@ def test_vintage_capex_age_bands():
         for _ in range(n_draws):
             base = _age_band_base(eff_age)
             n_bldgs = max(1, round(n_units_int / 4))
-            roof_prob = max(0.0, (eff_age - 15) / 40.0)
+            # Sweep 2026-09-28: was `max(0.0, (eff_age - 15) / 40.0)` - the
+            # OLD pre-2026-08-09 lifetime-cumulative formula, 2.5x-12.8x the
+            # engine's annual hazard. Read the engine's definition instead.
+            _hv, roof_prob = pymodel.vintage_hazards(eff_age)
             roof_cost = 0.0
             for _ in range(n_bldgs):
                 if rng.random() < roof_prob:
                     roof_cost += pymodel._tri_icdf(rng.random(), 8000.0, 11500.0, 15000.0)
 
-            hvac_prob = max(0.0, (eff_age - 10) / 30.0)
+            hvac_prob, _rf = pymodel.vintage_hazards(eff_age)
             hvac_cost = 0.0
             for _ in range(n_units_int):
                 if rng.random() < hvac_prob:
@@ -465,34 +468,49 @@ def test_vintage_capex_cap():
         else:
             return 750.0
 
-    cap_per_unit = 3000.0
+    # Read the engine's cap rather than restating it, so a change to the engine
+    # cannot leave this test asserting a number the engine no longer uses.
+    cap_per_unit = pymodel.VINTAGE_CAPEX_CAP_PER_UNIT
     violations = 0
+    uncapped_over = 0          # draws that WOULD exceed the cap if it were absent
     eff_age = 50  # worst case: very old building
 
     for _ in range(n_draws):
         base = _age_band_base(eff_age)
         n_bldgs = max(1, round(n_units / 4))
-        roof_prob = max(0.0, (eff_age - 15) / 40.0)
+        _hv, roof_prob = pymodel.vintage_hazards(eff_age)
         roof_cost = 0.0
         for _ in range(n_bldgs):
             if rng.random() < roof_prob:
                 roof_cost += pymodel._tri_icdf(rng.random(), 8000.0, 11500.0, 15000.0)
 
-        hvac_prob = max(0.0, (eff_age - 10) / 30.0)
+        hvac_prob, _rf = pymodel.vintage_hazards(eff_age)
         hvac_cost = 0.0
         for _ in range(n_units):
             if rng.random() < hvac_prob:
                 hvac_cost += pymodel._tri_icdf(rng.random(), 4500.0, 5750.0, 7000.0)
 
         total = base + (roof_cost + hvac_cost) / max(n_units, 1)
-        capped = min(total, cap_per_unit)
-        if capped > cap_per_unit + 0.01:  # floating point tolerance
+        # Sweep 2026-09-28: this used to be `capped = min(total, cap_per_unit)`
+        # followed by `if capped > cap_per_unit + 0.01`. min(x, c) can never
+        # exceed c, so `violations` was structurally 0 and the test passed for
+        # ANY hazard model — including one with the cap deleted entirely. Assert
+        # on the UNCAPPED draw against the engine's cap, and separately prove the
+        # cap is load-bearing (some draws would breach it), so the test can fail.
+        if total > cap_per_unit + 0.01:
+            uncapped_over += 1
+        if min(total, cap_per_unit) > cap_per_unit + 0.01:
             violations += 1
 
-    if violations == 0:
-        ok(f"no capex draws exceed ${cap_per_unit:.0f}/unit across {n_draws} draws (age=50yr)")
+    if violations:
+        fail("capex cap", f"{violations} capped draws exceeded ${cap_per_unit}/unit")
+    elif uncapped_over == 0:
+        fail("capex cap is load-bearing",
+             f"no draw out of {n_draws} at age 50 even approaches "
+             f"${cap_per_unit:.0f}/unit, so this test cannot detect a broken cap")
     else:
-        fail(f"capex cap", f"{violations} draws exceeded ${cap_per_unit}/unit")
+        ok(f"capex cap binds at ${cap_per_unit:.0f}/unit: {uncapped_over}/{n_draws} "
+           f"uncapped draws would breach it at age 50, none survive capping")
 
 
 # ---------------------------------------------------------------------------

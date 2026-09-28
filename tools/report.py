@@ -30,6 +30,14 @@ def num(v, dp=0):
 def irr_verdict(irr):
     if irr is None or isinstance(irr, str):
         return "NO IRR - model did not solve"
+    # Sweep 2026-09-28: every threshold below was compared against the RAW irr
+    # while the report PRINTS it rounded to 2dp, so one printed number carried
+    # two opposite verdicts. 0.129951 printed "13.00%" and read "BELOW PURSUE
+    # FLOOR - PASS under the house rule"; 0.130000 printed "13.00%" and read
+    # "clears the pursue floor". Same at 10%, 12%, 14% and 16% (0.159951 printed
+    # "16.00%" / BELOW TARGET). board.py:232-235 already documents this exact bug
+    # class as fixed for beats-index. Compare what the reader is shown.
+    irr = round(irr, 4)
     if irr < 0:
         return "FAIL - negative IRR"
     if irr < 0.10:

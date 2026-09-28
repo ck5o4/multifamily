@@ -63,19 +63,34 @@ def _build_inputs(deal_spec):
         base["price"] = price_override
         base["exit_cap"] = None  # force re-derive at new price
 
-        # Recompute taxes if location provided explicitly
-        location = deal_spec.get("location")
+        # A sale reassesses, so an overridden price must re-derive the tax bill.
+        # Sweep 2026-09-28, two bugs in these lines:
+        #  (1) Only `deal_spec["location"]` was consulted, while the AUTHORITATIVE
+        #      location sits in `base` — pymodel._load_deal already injected it
+        #      from deals.json. Live in the shipped eden-solo.json: priced at
+        #      $1,094,000 it kept the $1,699,000 basis's $17,007 bill against a
+        #      correct $10,951, printing IRR 26.35% where the truth is 28.41%.
+        #      Conservative there only because the override is BELOW the basis;
+        #      any override above it flatters (treme at $1.2M: -$4,633/yr).
+        #  (2) The fallback guessed the parish from an UNANCHORED deal-name token,
+        #      so `central-city-2nd` (Orleans) matched "central" -> East Baton
+        #      Rouge ($10,880 vs $13,199, 17.6% understated) and
+        #      `walker-ave-nola` matched "walker" -> Livingston, with "nola"
+        #      sitting in the same name. A wrong parish is worse than none.
+        # solve.py prints a loud warning in exactly this condition; this printed
+        # nothing at all.
+        location = deal_spec.get("location") or base.get("location")
+        tax = None
         if location:
             tax, _ = latax.estimate_tax(price_override, location)
-            if tax is not None:
-                base["taxes_annual"] = tax
-        elif deal_name:
-            # Try to infer location from deal name parts (baker -> baker, etc.)
-            for part in deal_name.split("-"):
-                tax, _ = latax.estimate_tax(price_override, part)
-                if tax is not None:
-                    base["taxes_annual"] = tax
-                    break
+        if tax is not None:
+            base["taxes_annual"] = tax
+        else:
+            print(f"  WARNING [portfolio_sim]: '{deal_name or '?'}' overrides price to "
+                  f"${price_override:,.0f} but no location resolves, so the tax bill "
+                  f"stays at the workbook's ${base.get('taxes_annual', 0):,.0f} "
+                  f"(assessed on a different price). Add \"location\" to the deal "
+                  f"record or the scenario; the IRR below is biased.", file=sys.stderr)
 
     # Merge explicit input overrides last (highest priority)
     extra = deal_spec.get("inputs", {})
@@ -216,10 +231,18 @@ def simulate(scenario):
     peak_deployed = 0.0
     cumulative_deployed = 0.0
     acquired = set()
+    # Distributions actually RECEIVED, accumulated independently of port_cf.
+    # Sweep 2026-09-28: "Cash returned" was sum(x for x in port_cf if x > 0),
+    # which drops any year whose acquisitions exceed its distributions - so on
+    # baker-then-fourplex the year-2 distribution of $18,127 was netted away and
+    # the panel printed "Cash returned $437,208" three lines below a final
+    # balance of $437,533. Two irreconcilable "money back" figures side by side.
+    gross_in = 0.0
 
     for yr in range(0, max_year + 1):
         cash_out_equity = 0.0   # equity deployed to buy deals this year
         cash_in_dist = 0.0      # CFADS / exit received this year
+        cash_out_ops = 0.0      # negative deal-year CFADS funded this year
 
         # --- Receive distributions FIRST, then buy (sweep 2026-09-21) ---
         # running_bal used to be updated once, at the end of the year, after
@@ -243,7 +266,15 @@ def simulate(scenario):
                 if cf >= 0:
                     cash_in_dist += cf
                 else:
-                    # Negative CFADS (e.g. deeply negative deal): count as cost
+                    # Negative CFADS (e.g. deeply negative deal): count as cost.
+                    # Sweep 2026-09-28: this debited the BALANCE but never
+                    # reached port_cf, so loss years vanished from the portfolio
+                    # IRR and a finite IRR printed for a deal that has none. A
+                    # 12-unit deal with an underwater exit (year-10 CF
+                    # -$146,101, deal IRR None, EM 0.706x) printed portfolio
+                    # +6.03% IRR / +$79,164 profit where the honest answer is
+                    # IRR None / -$66,937. A chronic-loss case hid $205,035.
+                    cash_out_ops += abs(cf)
                     cash_out_equity += abs(cf)
                     running_bal -= abs(cf)
 
@@ -289,8 +320,18 @@ def simulate(scenario):
                 cumulative_deployed += eq
                 peak_deployed = max(peak_deployed, cumulative_deployed)
 
-        # Record distributions + savings in port_cf
-        port_cf[yr] += cash_in_dist + savings
+        # Record distributions in port_cf. Sweep 2026-09-28: `+ savings` counted
+        # his own annual savings contribution as a portfolio RETURN. On eden-solo
+        # with $30,000/yr that printed 37.59% IRR / $732,883 profit / "cash
+        # returned 3.45x" against an honest 11.88% / $132,883 — a 25.7-point
+        # overstatement — and kept crediting $30,000/yr in years 6-10, after the
+        # only deal had already exited ($150,000 of invented return). It also
+        # contradicted this file's own capital-called convention, adopted
+        # 2026-09-07 for exactly this class of error. Savings are CONTRIBUTED
+        # CAPITAL: they raise running_bal (above), and the `port_cf[yr] -= eq`
+        # debit already charges them when a deal calls them.
+        port_cf[yr] += cash_in_dist - cash_out_ops
+        gross_in += cash_in_dist
 
         noi_yr = combined_noi.get(yr, 0.0)
         ds_yr = combined_ds.get(yr, 0.0)
@@ -312,7 +353,7 @@ def simulate(scenario):
     # -----------------------------------------------------------------------
     portfolio_irr = _portfolio_irr(port_cf)
     total_profit = sum(port_cf)
-    total_in = sum(x for x in port_cf if x > 0)
+    total_in = gross_in
 
     return {
         "scenario_name": scenario.get("name", "?"),

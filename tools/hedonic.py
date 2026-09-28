@@ -283,7 +283,15 @@ def fit(data=None, verbose=True):
         "units_range": (min(r["units"] for r in clean),
                         max(r["units"] for r in clean)),
     }
-    _FIT_CACHE.update(result)
+    # Sweep 2026-09-28: this was unconditional, so ANY fit(data=...) call (a
+    # backtest holdout, a bootstrap) poisoned the cache and every later
+    # fit(data=None) caller got the holdout's coefficients. On a held-out
+    # two-thirds sample (n=39 vs the full 56) that is Baton Rouge 12u $71,547 vs
+    # $59,100 per unit - +21.1%, +$149,364 on the building - in the direction
+    # that supports a HIGHER offer. No shipped consumer passes data= today, so
+    # this was a trap armed for the next backtest rather than a live error.
+    if data is None:
+        _FIT_CACHE.update(result)
     return result
 
 

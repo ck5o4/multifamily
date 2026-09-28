@@ -67,7 +67,18 @@ OVERRIDES = {
                      "will. Anthony's call whether to keep it open — the numbers say pass."),
         "gate": ("<b>Before any offer:</b> real rent roll, T-12, unit mix, renovation "
                  "scope, and whether any income is short-term rental."),
-        "flood": "Zone X levee-protected — no flood policy required",
+        # Sweep 2026-09-28: this read "Zone X levee-protected — no flood policy
+        # required", which is flood.py's levee branch with its SECOND HALF cut
+        # off. flood.py returns "Zone X only because of a levee. Insurance not
+        # lender-required but residual risk is real - price a voluntary policy."
+        # CLAUDE.md is explicit for Orleans: "much of Orleans is Zone X ONLY
+        # because of levee protection, so say the residual risk out loud rather
+        # than calling it clean." The board said it was clean. FEMA is
+        # unreachable from this container (curl 56), so the value stays carried —
+        # but it now carries the whole sentence and says that it is carried.
+        "flood": ("Zone X <b>only because of a levee</b> — not lender-required, but "
+                  "residual risk is real: price a voluntary policy. "
+                  "<i>(carried value — re-run flood.py to confirm)</i>"),
         "docs": "Estimates — documents requested",
     },
 }

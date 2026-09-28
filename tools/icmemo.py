@@ -12,6 +12,7 @@ the deal workbook via pymodel — the memo cannot disagree with the underwriting
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from datetime import date
@@ -59,16 +60,43 @@ def _load_deals():
 
 
 def _detect_rent_roll(deal_dir: Path):
-    """Return (path, status) where status is 'actual' | 'estimated' | 'from_listing'."""
+    """Return (path, status, alternates) — best candidate first.
+
+    status is 'actual' | 'estimated' | 'from_listing'; alternates lists the
+    (name, status) of every other rent-roll file found.
+
+    Sweep 2026-09-28: this returned the ALPHABETICALLY FIRST match, so
+    deal-intake/baker-trails/ (which holds both `..._ESTIMATED.csv` and
+    `..._OM_2026-08-13.csv`) resolved E before O. The memo therefore printed the
+    superseded ESTIMATED mix (9x2BR@$800 + 3x3BR@$900, GPR $118,800) three lines
+    below its own thesis quoting the real OM mix (4x3BR/8x2BR, GPR $126,000),
+    told Anthony to "request actual rent roll before offer" for a document
+    already in the folder — a verify-before-instructing violation — and never
+    named the OM file at all. intake.discover() already prefers the newest dated
+    file; this function did not. Rank by authority, then by date in the name.
+    """
+    _RANK = {"actual": 0, "from_listing": 1, "estimated": 2}
+    cands = []
     for p in sorted(deal_dir.iterdir()):
         low = p.name.lower()
         if any(h in low for h in ("rentroll", "rent_roll", "rent roll", "_rr", "rr_")):
             if "estimated" in low:
-                return p, "estimated"
-            if "from_listing" in low or "from listing" in low:
-                return p, "from_listing"
-            return p, "actual"
-    return None, None
+                status = "estimated"
+            elif "from_listing" in low or "from listing" in low:
+                status = "from_listing"
+            else:
+                status = "actual"
+            # A date in the filename breaks ties within a status band: the
+            # newest statement of equal authority wins.
+            dates = re.findall(r"(20\d{2}[-_]?\d{2}(?:[-_]?\d{2})?)", low)
+            cands.append((_RANK[status], [-ord(c) for c in (dates[-1] if dates else "")],
+                          p, status))
+    if not cands:
+        return None, None, []
+    cands.sort(key=lambda c: (c[0], c[1]))
+    best = cands[0]
+    alternates = [(c[2].name, c[3]) for c in cands[1:]]
+    return best[2], best[3], alternates
 
 
 def _detect_t12(deal_dir: Path):
@@ -230,7 +258,7 @@ def main():
               "Add a location field.", file=sys.stderr)
 
     # Detect rent roll and T-12
-    rr_path, rr_status = _detect_rent_roll(deal_dir)
+    rr_path, rr_status, rr_alternates = _detect_rent_roll(deal_dir)
     t12_path = _detect_t12(deal_dir)
     ins_noted, ins_evidence = _insurance_noted(deal_dir, history_text, deal_rec)
 
@@ -365,12 +393,29 @@ def main():
         # above the memo's own note that vacancy is judged by the stress grid
         # and not by MC. That left an MC probability as the reader's sole
         # vacancy number, inverting the house rule the same paragraph asserts.
-        downside = [row for row in tresults if (row["delta_irr"] or 0) < 0]
+        # A row with delta_irr None is a stress whose IRR cannot be solved, i.e.
+        # a TOTAL LOSS OF EQUITY (pymodel.tornado, sweep 2026-09-28). It is the
+        # worst downside, not a missing one, so it leads the downside table.
+        # Before the fix these rows were dropped inside tornado() and `(None or
+        # 0) >= 0` would have filed them as UPSIDE here.
+        unsolvable = [row for row in tresults if row["delta_irr"] is None]
+        downside = [row for row in tresults if row["delta_irr"] is not None
+                    and row["delta_irr"] < 0]
+        for row in unsolvable:
+            p(f"| {row['factor']:<24} | {'wipeout':>10}   | {'n/a':>6} |")
         for row in downside:
             sirr = (row["stressed_irr"] or 0) * 100
             delta = row["delta_irr"] * 100
             p(f"| {row['factor']:<24} | {sirr:>10.1f}%  | {delta:>+6.1f}% |")
-        upside = [row for row in tresults if (row["delta_irr"] or 0) >= 0]
+        if unsolvable:
+            blank()
+            p("*`wipeout` = every year of the hold is negative under this stress "
+              "and the equity is gone, so no IRR exists. These are the worst "
+              "downside rows, not absent ones: "
+              + ", ".join(f"{u['factor']} ({u.get('note') or 'IRR undefined'})"
+                          for u in unsolvable) + ".*")
+        upside = [row for row in tresults if row["delta_irr"] is not None
+                  and row["delta_irr"] >= 0]
         if upside:
             blank()
             p("*Upside cases, shown separately so they cannot lead the table: "
@@ -527,6 +572,46 @@ def main():
                     "not a seller-provided document; request actual rent roll before offer")
     else:
         gaps.append(f"✓ Rent roll: {rr_path.name}")
+
+    # The gap line names the BEST rent-roll file on disk, but the numbers in this
+    # memo come from the WORKBOOK. Those can disagree: baker-trails' workbook is
+    # still on the superseded ESTIMATED roll (GPR $118,800) while its folder holds
+    # the seller OM (market GPR $126,000). Saying "Rent roll: <OM>" over numbers
+    # built from the estimated roll would be a new, quieter version of the same
+    # lie, so reconcile the two and say it out loud when they differ. Which roll
+    # to underwrite is Anthony's call, not this tool's - so this reports, and
+    # changes nothing. (sweep 2026-09-28)
+    if rr_path is not None:
+        try:
+            import parsers as _parsers
+            _rr_groups, _ = _parsers.parse_rent_roll(rr_path)
+            _rr_units = sum(g["units"] for g in _rr_groups)
+            _rr_gpr = sum(g["units"] * g["rent"] for g in _rr_groups) * 12
+            _wb_units = sum(g["units"] for g in inputs["unit_mix"])
+            _wb_gpr = sum(g["units"] * g["rent"] for g in inputs["unit_mix"]) * 12
+            if _rr_units != _wb_units or abs(_rr_gpr - _wb_gpr) > 1.0:
+                gaps.append(
+                    f"❌ BASIS MISMATCH: the workbook every number above comes from "
+                    f"carries {_wb_units} units / GPR ${_wb_gpr:,.0f}, but "
+                    f"{rr_path.name} parses {_rr_units} units / GPR ${_rr_gpr:,.0f} "
+                    f"(${_rr_gpr - _wb_gpr:+,.0f}/yr). The workbook was not re-run "
+                    f"against this file. Re-intake it, or state which basis is "
+                    f"authoritative.")
+        except Exception as _e:
+            gaps.append(f"⚠ Could not reconcile {rr_path.name} against the "
+                        f"workbook's unit mix: {type(_e).__name__}")
+
+    # Never let a rent-roll file in the folder go unnamed: the memo used to
+    # instruct "request actual rent roll before offer" while a seller OM sat in
+    # the same directory, unmentioned (sweep 2026-09-28).
+    if rr_alternates:
+        gaps.append("ℹ Other rent-roll file(s) in this folder, NOT used for the "
+                    "numbers above: "
+                    + "; ".join(f"{n} ({s})" for n, s in rr_alternates)
+                    + ". Every number above comes from the workbook, not directly "
+                      "from any of these files — see the basis check above for "
+                      "whether they agree. Re-run intake with --rent-roll <path> to "
+                      "change which one the workbook is built on.")
 
     # T-12
     if t12_path is None:

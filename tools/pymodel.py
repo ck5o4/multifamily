@@ -30,6 +30,54 @@ import latax
 
 
 # ---------------------------------------------------------------------------
+# Warning dedupe
+# ---------------------------------------------------------------------------
+# monte_carlo() calls run() once per simulated path, so any warning raised
+# inside run() fires thousands of times. Keyed dedupe keeps a tail condition
+# visible exactly once per process without burying the real output.
+_WARNED = set()
+
+
+def _warn_once(key, message):
+    if key in _WARNED:
+        return
+    _WARNED.add(key)
+    print(message, file=sys.stderr)
+
+
+def _reset_warnings():
+    """Test hook: forget what has already been warned about."""
+    _WARNED.clear()
+
+
+# ---------------------------------------------------------------------------
+# Vintage capex hazards — module level so the tests cannot drift from the engine
+# ---------------------------------------------------------------------------
+# Sweep 2026-09-28: these were inline inside monte_carlo's
+# _draw_vintage_capex_annual closure, so test_mc.py's tests 8 and 9
+# REIMPLEMENTED them — and reimplemented the OLD, pre-2026-08-09 formulas
+# ((age-15)/40 for roof, (age-10)/30 for HVAC), i.e. the very
+# lifetime-cumulative-as-annual bug that sweep removed. The test hazards ran
+# 2.5x-12.8x the engine's, test 8 asserted the degenerate $3,000/unit cap the
+# fix eliminated (the engine actually produces ~$1,620/unit at age 40), and
+# test 9 computed `min(total, cap)` and then asserted the result exceeded the
+# cap — false for every real number, so it could never fail for any hazard
+# model at all. One definition, read by both.
+VINTAGE_CAPEX_CAP_PER_UNIT = 3000.0
+
+
+def vintage_hazards(age):
+    """Annual (hvac_prob, roof_prob) at an effective building age.
+
+    HVAC ~15-20yr life: ramps from age 8, capped 12%/yr.
+    Roof ~20-30yr life: ramps from age 12, capped 9%/yr.
+    """
+    hvac_prob = min(0.12, max(0.0, (age - 8) * 0.008))
+    roof_prob = min(0.09, max(0.0, (age - 12) * 0.006))
+    return hvac_prob, roof_prob
+
+
+# ---------------------------------------------------------------------------
 # Finance primitives (stdlib only, no numpy)
 # ---------------------------------------------------------------------------
 
@@ -261,6 +309,18 @@ def run(inputs: dict) -> dict:
 
     # --- Total equity required ---
     total_equity = price + price * closing_pct + loan_amount * loan_fee_pct - loan_amount + reno_budget
+    # Sweep 2026-09-28: equity_multiple is guarded (it tests lev_cf[0] < 0) but
+    # avg_coc divides by total_equity unguarded, and _irr's degenerate check only
+    # requires one sign change. At ltv 1.05 / min_dscr 0.5 total_equity went to
+    # -$19,500 and the engine reported levered IRR +153.93% and avg_coc +145.08%
+    # for a deal that loses money in every single year - a borrowing-side root
+    # returned as an investment return. Only reachable above ltv ~1.03.
+    if total_equity <= 0:
+        raise ValueError(
+            f"total equity required is {total_equity:,.0f} <= 0 (ltv={ltv}, "
+            f"loan={loan_amount:,.0f}, price={price:,.0f}): the loan covers the "
+            f"whole basis, so there is no equity to compute a return on. IRR and "
+            f"cash-on-cash are undefined here.")
     lp_capital = total_equity * lp_pct
     gp_capital = total_equity - lp_capital
 
@@ -292,7 +352,21 @@ def run(inputs: dict) -> dict:
         refi_monthly_rate = refi_rate / 12
         refi_n_pmt = refi_amort_years * 12
         refi_dscr_loan = _pv_annuity(refi_monthly_rate, refi_n_pmt, refi_dscr_pmt)
-        refi_new_loan = min(refi_ltv * refi_value, refi_dscr_loan)
+        # Sweep 2026-09-28: the acquisition loan at :254 has a max(0.0, ...)
+        # floor; this one did not. A negative refi-year NOI therefore produced a
+        # NEGATIVE loan, which the engine turned into a silent multi-million
+        # cash CALL plus a debt-free property: noi(yr9) -$113,914 -> refi_value
+        # -$1,627,341 -> refi_new_loan -$1,220,506, injected as year-9 "cash
+        # out", beginning balance negative so the <= 0.01 guard zeroed all
+        # further debt service and the exit payoff. The model said you wire
+        # $1.22M at the refi and then own the asset free and clear forever.
+        # (The workbook's Checks!B11 passes on this too: -1,220,505 <= -1,220,504.)
+        if noi_refi <= 0:
+            raise ValueError(
+                f"refi-year NOI is {noi_refi:,.0f} <= 0 at refi_year={refi_year}: "
+                f"no lender refinances negative income, so no refi can be sized. "
+                f"Remove the refi or move it to a year with positive NOI.")
+        refi_new_loan = max(0.0, min(refi_ltv * refi_value, refi_dscr_loan))
 
         refi_new_monthly_pmt = _pmt(refi_monthly_rate, refi_n_pmt, refi_new_loan)
         refi_new_annual_ds = refi_new_monthly_pmt * 12
@@ -424,8 +498,24 @@ def run(inputs: dict) -> dict:
                    mgmt_pct, expense_growth,
                    reno_units, reno_units_per_year, reno_start_year,
                    reno_premium_month, reno_downtime_months)
-    sale_price = noi_fwd / exit_cap if exit_cap > 0 else 0.0
+    # Sweep 2026-09-28: a negative forward NOI produced a NEGATIVE sale price and
+    # then a NEGATIVE cost of sale - a brokerage CREDIT that made the exit look
+    # BETTER than its own nonsense sale price. On baker-trails with insurance at
+    # $6,000/unit (year-1 NOI still positive at +$753, so the :256 warning never
+    # fired): noi_fwd -$2,103 -> sale -$30,045.62, cost of sale -$901.37, i.e. the
+    # exit reported $901 better than the negative sale. A property whose forward
+    # NOI is negative does not sell for a negative number; it sells for whatever
+    # the land and improvements fetch, which this model does not attempt.
+    sale_price = max(0.0, noi_fwd) / exit_cap if exit_cap > 0 else 0.0
     cost_of_sale_amt = sale_price * cost_of_sale
+    if noi_fwd <= 0:
+        # Deduped: monte_carlo() calls run() once per path, so a negative
+        # forward NOI in the left tail would otherwise print thousands of lines.
+        _warn_once("neg_noi_fwd",
+                   f"WARNING [run]: forward NOI (year {hold_years + 1}) came back "
+                   f"<= 0 on at least one run (first seen {noi_fwd:,.0f}) — sale "
+                   f"price floored at 0. The exit is unmodelled, not zero-value; "
+                   f"do not quote an IRR or equity multiple from such a run.")
     # Audit F1 2026-08-05: a refi landing IN the sale year never rolls the debt
     # schedule to the new loan — exit must pay off the refi loan, not the old
     # balance (which refi_cash_out already netted out). Without this, ~$271K of
@@ -815,6 +905,21 @@ def _merge_defaults(inputs):
     # `location` and `commercial_share` are consumed by solve_price's tax
     # re-derivation rather than by run() itself, but _load_deal injects both
     # from deals.json, so they are legitimate members of a deal input dict.
+    # Sweep 2026-09-28: exit_cap = 0 passed every guard. defaults.parse_override
+    # only rejects fractions > 1.5, and _load_deal's _v(0.0, None) returns 0.0
+    # rather than None, so the "derive going-in + 50bps" path never ran. run()
+    # then returned a complete, confident result with sale_price 0.00 and a
+    # terminal levered CF of -$492,512 and printed NOTHING on stderr. The
+    # WORKBOOK is safer here: D46 = E25/0 gives #DIV/0!, which recalc.scan_errors
+    # catches and intake exits on. tornado() also reads `exit_cap or derived`, so
+    # a falsy 0.0 silently gave every STRESS a derived cap while the BASE used 0.
+    _ec = inputs.get("exit_cap")
+    if _ec is not None and _ec <= 0:
+        raise ValueError(
+            f"exit_cap is {_ec}: a zero or negative exit cap implies an infinite "
+            f"or negative sale price. Leave it unset to derive going-in + 50bps, "
+            f"or give a positive cap.")
+
     allowed = set(defaults) | {"price", "unit_mix", "location", "commercial_share"}
     unknown = sorted(set(inputs) - allowed)
     if unknown:
@@ -1006,22 +1111,38 @@ def tornado(inputs: dict) -> list[dict]:
         p = dict(inputs)
         p["exit_cap"] = frozen_cap
         p.update(overrides)
+        # Sweep 2026-09-28: an unsolvable stress used to be DROPPED (`continue`)
+        # and any raising stress swallowed (`except: pass`). An IRR that cannot be
+        # solved here means every year is negative - a TOTAL LOSS OF EQUITY, i.e.
+        # the worst downside there is, silently deleted from the downside table.
+        # On a 23-unit / $569K / 3-yr fixture the table led with "insurance -50%
+        # +56.83%" as the biggest mover and carried NO insurance downside at all,
+        # because "insurance +50%" wiped out the equity (cash flows
+        # [-243,375, -105, -4,762, -55,624]) and vanished. 455 of 3,000 randomized
+        # plausible vectors lose at least one row. icmemo feeds this straight into
+        # the memo's DOWNSIDE STRESSES table with no count and no missing-row
+        # notice, so the reader cannot tell a row is absent.
+        note = None
         try:
             r = run(p)
             stressed_irr = r["levered_irr"]
             if stressed_irr is None:
-                continue
-            delta = stressed_irr - base_irr
-            results.append({
-                "factor": label,
-                "base_irr": base_irr,
-                "stressed_irr": stressed_irr,
-                "delta_irr": delta,
-            })
-        except Exception:
-            pass
+                note = "total loss of equity — IRR undefined"
+        except Exception as exc:
+            stressed_irr = None
+            note = f"run refused this stress: {type(exc).__name__}"
+        results.append({
+            "factor": label,
+            "base_irr": base_irr,
+            "stressed_irr": stressed_irr,
+            "delta_irr": None if stressed_irr is None else stressed_irr - base_irr,
+            "note": note,
+        })
 
-    results.sort(key=lambda x: abs(x["delta_irr"]), reverse=True)
+    # Unsolvable stresses sort FIRST: they are the worst outcome, not a missing
+    # one. Everything else keeps the absolute-delta order.
+    results.sort(key=lambda x: (x["delta_irr"] is not None,
+                                -abs(x["delta_irr"]) if x["delta_irr"] is not None else 0))
     return results
 
 
@@ -1525,8 +1646,7 @@ def monte_carlo(inputs: dict, n: int = 0, seed: int = 42,
         total = 0.0
         for k in range(hold):
             a = age + k
-            hvac_prob = min(0.12, max(0.0, (a - 8) * 0.008))
-            roof_prob = min(0.09, max(0.0, (a - 12) * 0.006))
+            hvac_prob, roof_prob = vintage_hazards(a)
             roof_cost = 0.0
             for _ in range(n_bldgs):
                 if rng.random() < roof_prob:
@@ -1906,8 +2026,12 @@ def main():
         print("\n--- TORNADO ---")
         print(f"  {'Factor':<25} {'Stressed IRR':>12} {'Delta':>8}")
         for row in tornado(inputs):
-            print(f"  {row['factor']:<25} {row['stressed_irr']*100:>11.2f}%"
-                  f" {row['delta_irr']*100:>+7.2f}%")
+            if row["delta_irr"] is None:
+                print(f"  {row['factor']:<25} {'n/a':>12} {'n/a':>8}"
+                      f"   {row.get('note') or 'IRR undefined'}")
+            else:
+                print(f"  {row['factor']:<25} {row['stressed_irr']*100:>11.2f}%"
+                      f" {row['delta_irr']*100:>+7.2f}%")
 
     if args.mc:
         print("\n--- MONTE CARLO (auto-scale, SE<0.5pts) ---")

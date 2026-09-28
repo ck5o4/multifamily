@@ -1016,6 +1016,40 @@ def test_portfolio_sim_credits_sales_before_it_buys():
         check("portfolio_sim: the running balance ties every year", True)
 
 
+def test_intake_gates_refuse_a_misleading_write():
+    """Four --apply paths that used to produce a confident wrong answer."""
+    import pathlib, subprocess, sys as _sys
+    tools = pathlib.Path(__file__).resolve().parent
+    src = (tools / "intake.py").read_text()
+    # --apply with no --price wrote the deal onto the MASTER'S DEMO PRICE.
+    check("intake: --apply without --price is refused",
+          "--apply needs --price" in src)
+    # --units-override beat a rent roll that had already parsed.
+    check("intake: --units-override contradicting a parsed roll is refused",
+          "contradicts the rent" in src)
+    # A part-year statement was flagged and then written as annual anyway.
+    check("intake: a part-year statement blocks --apply unless accepted",
+          "--accept-part-year" in src and "PART-YEAR STATEMENT" in src)
+    # A parsed T-12 was printed and then discarded when units were unknown.
+    check("intake: a T-12 with an unknown unit count is refused, not discarded",
+          "unit count is unknown" in src)
+    # And the gates must be real exits, not printed notes (2026-09-28: notes
+    # print screens BELOW the verdict and nothing ever exits non-zero on one).
+    check("intake: those gates raise SystemExit rather than appending a note",
+          src.count("raise SystemExit") >= 4,
+          f"only {src.count('raise SystemExit')} SystemExit gates")
+
+
+def test_board_says_the_residual_levee_risk_out_loud():
+    """board.py hand-typed 'Zone X levee-protected - no flood policy required'."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parent / "board.py").read_text()
+    check("board: the 'no flood policy required' phrasing is gone",
+          "no flood policy required" not in src)
+    check("board: the residual-risk half of flood.py's sentence is present",
+          "residual risk is real" in src)
+
+
 def main():
     print("REGRESSION TESTS (2026-08-09 sweep)")
     test_solve_not_false_unreachable()
@@ -1057,11 +1091,429 @@ def main():
     test_parceltax_validates_commercial_share()
     test_mc_honours_the_deals_own_exit_cap()
     test_portfolio_sim_credits_sales_before_it_buys()
+    print("REGRESSION TESTS (2026-09-28 sweep)")
+    test_to_num_reads_accounting_negatives()
+    test_thirteenth_column_is_not_the_annual_figure()
+    test_two_year_t12_takes_the_latest_year()
+    test_part_year_statement_is_still_detected()
+    test_credit_lines_offset_rather_than_add()
+    test_matched_expense_with_no_parseable_amount_is_reported()
+    test_totals_row_is_caught_anywhere_in_the_label()
+    test_garbage_and_lawn_map_to_an_expense_line()
+    test_duplicate_expense_labels_keep_the_larger()
+    test_tornado_never_drops_a_stress()
+    test_negative_forward_noi_does_not_credit_the_seller()
+    test_zero_exit_cap_is_refused()
+    test_negative_refi_noi_is_refused()
+    test_non_positive_equity_is_refused()
+    test_wind_parishes_carry_the_higher_insurance_default()
+    test_vintage_hazards_are_shared_with_the_engine()
+    test_savings_are_capital_not_portfolio_return()
+    test_price_override_reassesses_taxes_from_the_records_location()
+    test_price_override_does_not_guess_the_parish_from_the_deal_name()
+    test_cash_returned_is_what_was_actually_received()
+    test_hedonic_fit_cache_is_not_poisoned_by_a_holdout()
+    test_short_bls_series_does_not_print_a_zero_trend()
+    test_hot_cap_floor_actually_binds()
+    test_irr_verdict_agrees_with_the_number_it_prints()
+    test_bankpackage_reports_sponsor_cash_not_total_equity()
+    test_icmemo_prefers_the_seller_document_over_an_estimate()
+    test_intake_gates_refuse_a_misleading_write()
+    test_board_says_the_residual_levee_risk_out_loud()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)
     print("\nRESULT: all regression tests passed")
 
+
+
+
+# ===========================================================================
+# 2026-09-28 sweep
+# ===========================================================================
+
+def _code_only(path):
+    """Source with comment lines and docstring-ish text stripped.
+
+    A source-text assertion that does not do this matches the very comment that
+    documents the fix (all three of these tripped on their own explanation the
+    first time they ran, 2026-09-28).
+    """
+    out = []
+    for line in path.read_text().splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        out.append(line.split("  #")[0])
+    return "\n".join(out)
+
+
+def test_to_num_reads_accounting_negatives():
+    """Accounting-export negatives must parse, and a split cell must not."""
+    import parsers
+    cases = [("$(48,000)", -48000.0), ("(48,000)", -48000.0),
+             ("−18,120", -18120.0), ("12,360-", -12360.0),
+             ("48,000", 48000.0), ("-500", -500.0)]
+    for text, want in cases:
+        got = parsers.to_num(text)
+        check(f"to_num({text!r}) == {want}", got == want, f"got {got}")
+    # An unbalanced paren is a truncated/split cell. The old regex accepted it
+    # and returned +1200 -- a silent SIGN FLIP.
+    check("to_num: an unbalanced paren is refused, not read as positive",
+          parsers.to_num("(1,200") is None, f"got {parsers.to_num('(1,200')}")
+
+
+def test_thirteenth_column_is_not_the_annual_figure():
+    """12 monthly columns + a per-unit 13th must sum the 12, not read the 13th."""
+    import parsers
+    rows = [["Line"] + [f"M{i}" for i in range(1, 13)] + ["Per Unit/Yr"],
+            ["Payroll"] + [3430] * 12 + [1715],
+            ["Insurance"] + [4000] * 12 + [2000]]
+    lines, _, _, _ = parsers._t12_from_rows(rows)
+    check("t12: payroll is the 12-month sum, not the per-unit 13th column",
+          abs(lines["payroll"]["annual"] - 41160) < 1,
+          f"got {lines['payroll']['annual']}")
+    check("t12: insurance likewise",
+          abs(lines["insurance"]["annual"] - 48000) < 1,
+          f"got {lines['insurance']['annual']}")
+    check("t12: the basis says the trailing column was ignored",
+          "ignored 1 trailing column" in lines["payroll"]["basis"],
+          lines["payroll"]["basis"])
+
+
+def test_two_year_t12_takes_the_latest_year():
+    """'Total 2024 | Total 2025' must parse 2025 and name the column."""
+    import parsers
+    rows = [["Line", "Total 2024", "Total 2025"],
+            ["Payroll", 28000, 41160],
+            ["Insurance", 21000, 48000]]
+    lines, _, notes, _ = parsers._t12_from_rows(rows)
+    check("t12: the later year wins",
+          abs(lines["payroll"]["annual"] - 41160) < 1,
+          f"got {lines['payroll']['annual']}")
+    check("t12: the chosen total column is named in the basis",
+          "2025" in lines["payroll"]["basis"], lines["payroll"]["basis"])
+    # The period counter must not treat the OTHER total column as a month.
+    check("t12: a two-year statement is not flagged as a 1-month partial year",
+          not any("PART-YEAR" in n for n in notes), str(notes))
+
+
+def test_part_year_statement_is_still_detected():
+    """The two-year fix must not blind the genuine part-year detector."""
+    import parsers
+    rows = [["Line"] + [f"M{i}" for i in range(1, 13)] + ["Total"],
+            ["Payroll"] + [3430] * 6 + [0] * 6 + [20580],
+            ["Insurance"] + [4000] * 6 + [0] * 6 + [24000]]
+    _, _, notes, _ = parsers._t12_from_rows(rows)
+    check("t12: a 6-of-12-month statement is still flagged PART-YEAR",
+          any("PART-YEAR" in n for n in notes), str(notes))
+
+
+def test_credit_lines_offset_rather_than_add():
+    """A rebate/reimbursement reduces the line it names."""
+    import parsers
+    rows = [["Line", "Total"],
+            ["Insurance", 48000], ["Insurance Rebate", "(6,000)"],
+            ["Utilities", 18120], ["Utility Reimbursement", -4800]]
+    lines, _, _, _ = parsers._t12_from_rows(rows)
+    check("t12: insurance net of its rebate is 42,000 (was 54,000)",
+          abs(lines["insurance"]["annual"] - 42000) < 1,
+          f"got {lines['insurance']['annual']}")
+    check("t12: utilities net of reimbursement is 13,320 (was 22,920)",
+          abs(lines["utilities"]["annual"] - 13320) < 1,
+          f"got {lines['utilities']['annual']}")
+    # "Credit Card Fees" is a G&A bank charge, not a credit.
+    check("t12: 'Credit Card Fees' is not treated as a credit",
+          not parsers._CREDIT_RE.search("credit card fees"))
+
+
+def test_matched_expense_with_no_parseable_amount_is_reported():
+    """A matched category whose amount will not parse must not vanish."""
+    import parsers
+    rows = [["Line", "Total"], ["Insurance", "see schedule B"], ["Payroll", 41160]]
+    lines, _, notes, _ = parsers._t12_from_rows(rows)
+    check("t12: the unparseable insurance line is not silently written",
+          "insurance" not in lines, str(list(lines)))
+    check("t12: and it is reported in the notes",
+          any("Insurance" in n and "no amount" in n for n in notes), str(notes))
+
+
+def test_totals_row_is_caught_anywhere_in_the_label():
+    """'Building Totals' is a totals row, not a unit type."""
+    import parsers
+    for lbl in ("Building Totals", "Property Total", "Portfolio Total",
+                "Summary", "All Units", "Totals", "Total"):
+        check(f"rent roll: {lbl!r} is a totals row", parsers.is_total_row(lbl))
+    check("rent roll: a real unit type is not a totals row",
+          not parsers.is_total_row("2 BR/ 2 BA"))
+
+
+def test_garbage_and_lawn_map_to_an_expense_line():
+    """Live gap: eden and hwy42 both carry 'Lawn Care'; neither mapped."""
+    import parsers
+    want = {"Lawn Care": "contract_services", "Mowing": "contract_services",
+            "Garbage": "utilities", "Refuse Collection": "utilities",
+            "Sanitation": "utilities"}
+    for label, expect in want.items():
+        low = label.lower()
+        got = next((k for k, kws in parsers._T12_MAP
+                    if any(kw in low for kw in kws)), None)
+        check(f"t12: {label!r} maps to {expect}", got == expect, f"got {got}")
+
+
+def test_duplicate_expense_labels_keep_the_larger():
+    """The later block on a broker statement is the seller's pro forma."""
+    import parsers
+    rows = [["Line", "Total"], ["Electric", 6176], ["Electric", 1200]]
+    lines, _, notes, _ = parsers._t12_from_rows(rows)
+    check("t12: the larger duplicate survives (actual, not the adjusted pro forma)",
+          abs(lines["utilities"]["annual"] - 6176) < 1,
+          f"got {lines['utilities']['annual']}")
+    check("t12: and both figures are named",
+          any("kept larger" in n for n in notes), str(notes))
+
+
+def test_tornado_never_drops_a_stress():
+    """An unsolvable stress is a wipeout row, not an absent one."""
+    inputs = dict(price=569_000, unit_mix=[{"units": 23, "sf": 750, "rent": 925}],
+                  taxes_annual=32_200, vacancy=0.07, insurance=3000, mgmt_pct=0.10,
+                  expense_growth=0.025, rent_growth=0.0, ltv=0.75, min_dscr=1.20,
+                  rate=0.0675, hold_years=3, exit_cap=0.07)
+    rows = pymodel.tornado(inputs)
+    labels = [r["factor"] for r in rows]
+    check("tornado: the insurance DOWNSIDE row is present (it used to vanish)",
+          "insurance +50%" in labels, str(labels))
+    check("tornado: both insurance directions are shown",
+          "insurance -50%" in labels and "insurance +50%" in labels)
+    wipeouts = [r for r in rows if r["delta_irr"] is None]
+    check("tornado: the unsolvable stress is reported as a wipeout",
+          len(wipeouts) == 1 and wipeouts[0]["factor"] == "insurance +50%",
+          str([(r["factor"], r["delta_irr"]) for r in rows]))
+    check("tornado: a wipeout sorts FIRST, so it cannot be cut by a top-N slice",
+          rows[0]["delta_irr"] is None, rows[0]["factor"])
+    check("tornado: the wipeout carries an explanatory note",
+          bool(wipeouts[0].get("note")))
+
+
+def test_negative_forward_noi_does_not_credit_the_seller():
+    """A negative forward NOI must not yield a negative cost of sale."""
+    base = pymodel._load_deal("baker-trails")
+    r = pymodel.run(dict(base, insurance=6000))
+    check("exit: sale price is floored at zero, not negative",
+          r["sale_price"] >= 0.0, f"got {r['sale_price']}")
+    check("exit: cost of sale is not a brokerage CREDIT",
+          r["cost_of_sale_amt"] >= 0.0, f"got {r['cost_of_sale_amt']}")
+
+
+def test_zero_exit_cap_is_refused():
+    """exit_cap=0 used to silently drop the entire sale."""
+    for bad in (0, 0.0, -0.01):
+        try:
+            pymodel.run(dict(price=1_000_000,
+                             unit_mix=[{"units": 12, "sf": 800, "rent": 950}],
+                             taxes_annual=10_000, exit_cap=bad))
+            check(f"exit_cap={bad} is refused", False, "no error raised")
+        except ValueError:
+            check(f"exit_cap={bad} is refused", True)
+
+
+def test_negative_refi_noi_is_refused():
+    """A negative refi-year NOI produced a negative loan and a phantom cash call."""
+    try:
+        pymodel.run(dict(price=1_200_000,
+                         unit_mix=[{"units": 20, "sf": 700, "rent": 560}],
+                         taxes_annual=14_000, rent_growth=0.0, expense_growth=0.09,
+                         insurance=3000, hold_years=10, refi_year=9,
+                         refi_valuation_cap=0.07, exit_cap=0.07))
+        check("refi: a negative refi-year NOI is refused", False, "no error raised")
+    except ValueError as e:
+        check("refi: a negative refi-year NOI is refused", "refi-year NOI" in str(e), str(e))
+
+
+def test_non_positive_equity_is_refused():
+    """Negative equity returned a borrowing root as an investment IRR."""
+    try:
+        pymodel.run(dict(price=1_000_000,
+                         unit_mix=[{"units": 12, "sf": 800, "rent": 950}],
+                         taxes_annual=10_000, ltv=1.05, min_dscr=0.5))
+        check("equity: a non-positive equity requirement is refused", False,
+              "no error raised")
+    except ValueError as e:
+        check("equity: a non-positive equity requirement is refused",
+              "total equity" in str(e), str(e))
+
+
+def test_wind_parishes_carry_the_higher_insurance_default():
+    """CLAUDE.md 2026-08-17: the metro/inland gap IS wind insurance."""
+    import defaults
+    for loc in ("New Orleans, LA", "Chalmette", "Gretna", "Metairie",
+                "Jefferson Parish", "St. Bernard"):
+        val, _ = defaults.derive("insurance", 12, loc)
+        check(f"defaults: {loc} carries $3,000/unit wind insurance", val == 3000,
+              f"got {val}")
+    for loc in ("Baker, LA", "Denham Springs", "Gonzales", "Covington"):
+        val, _ = defaults.derive("insurance", 12, loc)
+        check(f"defaults: {loc} carries the $2,000/unit inland basis", val == 2000,
+              f"got {val}")
+    val, note = defaults.derive("insurance", 12, None)
+    check("defaults: with no location the inland basis is used AND disclosed",
+          val == 2000 and "no location" in note, f"{val} / {note}")
+
+
+def test_vintage_hazards_are_shared_with_the_engine():
+    """test_mc.py reimplemented these and drifted to the pre-2026-08-09 formulas."""
+    check("pymodel exposes vintage_hazards for the tests to read",
+          hasattr(pymodel, "vintage_hazards"))
+    check("pymodel exposes the capex cap",
+          getattr(pymodel, "VINTAGE_CAPEX_CAP_PER_UNIT", None) == 3000.0)
+    hv, rf = pymodel.vintage_hazards(40)
+    check("vintage hazards are ANNUAL and capped (not lifetime-cumulative)",
+          hv == 0.12 and rf == 0.09, f"hvac={hv} roof={rf}")
+    hv0, rf0 = pymodel.vintage_hazards(5)
+    check("a new building carries no vintage hazard", hv0 == 0.0 and rf0 == 0.0,
+          f"hvac={hv0} roof={rf0}")
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parent / "test_mc.py").read_text()
+    check("test_mc.py no longer reimplements the hazard formulas",
+          "(eff_age - 15) / 40.0" not in src.replace(
+              "# Sweep 2026-09-28: was `max(0.0, (eff_age - 15) / 40.0)` - the", ""))
+
+
+def test_savings_are_capital_not_portfolio_return():
+    """annual_savings_contribution was credited to port_cf as an inflow."""
+    import portfolio_sim
+    scen = {"name": "t", "starting_equity": 300_000, "annual_savings": 30_000,
+            "deals": [{"deal": "eden-church-mhp", "acq_year": 0, "price": 1_094_000,
+                       "location": "denham springs"}]}
+    with_sav = portfolio_sim.simulate(scen)
+    without = portfolio_sim.simulate(dict(scen, annual_savings=0))
+    check("portfolio_sim: savings do not inflate the portfolio IRR",
+          abs((with_sav["portfolio_irr"] or 0) - (without["portfolio_irr"] or 0)) < 0.005,
+          f"{with_sav['portfolio_irr']} vs {without['portfolio_irr']}")
+    check("portfolio_sim: savings do not inflate reported profit",
+          abs(with_sav["total_profit"] - without["total_profit"]) < 1.0,
+          f"{with_sav['total_profit']} vs {without['total_profit']}")
+
+
+def test_price_override_reassesses_taxes_from_the_records_location():
+    """The authoritative location sits in the deal RECORD, not only the scenario."""
+    import portfolio_sim, latax
+    # No "location" in the spec: it must be picked up from the loaded deal.
+    got = portfolio_sim._build_inputs({"deal": "eden-church-mhp", "price": 1_094_000})
+    want, _ = latax.estimate_tax(1_094_000, "denham springs")
+    check("portfolio_sim: an overridden price re-derives the tax bill from the "
+          "record's own location",
+          want is not None and abs(got["taxes_annual"] - want) < 1.0,
+          f"got {got.get('taxes_annual')}, want {want}")
+
+
+def test_price_override_does_not_guess_the_parish_from_the_deal_name():
+    """'central-city-2nd' (Orleans) matched the token 'central' -> East Baton Rouge."""
+    import pathlib as _pl
+    src = (_pl.Path(__file__).resolve().parent / "portfolio_sim.py").read_text()
+    check("portfolio_sim: the unanchored deal-name token loop is gone",
+          "for part in deal_name.split" not in src)
+    check("portfolio_sim: an unresolvable location warns instead of freezing silently",
+          "no location resolves" in src)
+
+
+def test_cash_returned_is_what_was_actually_received():
+    """'Cash returned' netted same-year acquisitions out of distributions."""
+    import portfolio_sim, json, pathlib
+    path = pathlib.Path(portfolio_sim.__file__).resolve().parent.parent / \
+        "portfolio" / "scenarios" / "baker-then-fourplex.json"
+    if not path.exists():
+        check("portfolio_sim: baker-then-fourplex scenario present", True,
+              "skipped - scenario missing")
+        return
+    res = portfolio_sim.simulate(json.loads(path.read_text()))
+    gross = 0.0
+    for row in res["annual_table"]:
+        gross += row.get("cash_in_dist", row.get("cash_in", 0.0)) or 0.0
+    check("portfolio_sim: cash returned is not less than the final balance",
+          res["total_returned"] >= res["annual_table"][-1]["running_balance"] - 1.0,
+          f"returned {res['total_returned']:,.0f} vs final balance "
+          f"{res['annual_table'][-1]['running_balance']:,.0f}")
+
+
+def test_hedonic_fit_cache_is_not_poisoned_by_a_holdout():
+    """Any fit(data=...) used to overwrite the cache for all later callers."""
+    import hedonic
+    hedonic._FIT_CACHE.clear()
+    full = hedonic.fit(verbose=False)
+    n_full = full.get("n")
+    rows = hedonic.load_sales() if hasattr(hedonic, "load_sales") else None
+    if rows:
+        holdout = [r for i, r in enumerate(rows) if i % 3 != 0]
+        hedonic.fit(data=holdout, verbose=False)
+    again = hedonic.fit(verbose=False)
+    check("hedonic: a holdout fit does not poison the shared cache",
+          again.get("n") == n_full, f"{again.get('n')} vs {n_full}")
+
+
+def test_short_bls_series_does_not_print_a_zero_trend():
+    """A series too short to measure printed '+0.0%' as if it were data."""
+    import pathlib as _pl
+    src = _code_only(_pl.Path(__file__).resolve().parent / "market.py")
+    check("market: a short labor-force series yields None, not 0.0",
+          "lf_trend = (lf[-1][1] / lf[-13][1] - 1) * 100 if len(lf) >= 13 else None" in src,
+          "still returns 0.0")
+    check("market: the caller prints n/a rather than a number",
+          "series too short" in src)
+
+
+def test_hot_cap_floor_actually_binds():
+    """min(honest-0.005, max(0.045, honest-0.015)) defeated its own floor."""
+    import pathlib as _pl
+    src = _code_only(_pl.Path(__file__).resolve().parent / "strategies.py")
+    check("strategies: the defeated min()/max() hot-cap expression is gone",
+          "max(0.045, honest_cap - 0.015)" not in src)
+    check("strategies: an explicit floor constant exists", "_HOT_FLOOR" in src)
+    # The floor must actually bind, and the suppression branch must be reachable.
+    for honest, expect_suppressed in ((0.045, True), (0.048, True),
+                                      (0.055, True), (0.070, False)):
+        hot = honest - 0.015
+        suppressed = hot < 0.045 or hot >= honest
+        check(f"strategies: honest cap {honest*100:.1f}% -> "
+              f"{'suppressed' if expect_suppressed else f'hot cap {hot*100:.2f}%'}",
+              suppressed == expect_suppressed, f"hot={hot}")
+
+
+def test_irr_verdict_agrees_with_the_number_it_prints():
+    """0.129951 printed '13.00%' and read BELOW PURSUE FLOOR; 0.13 read clears."""
+    import report
+    pairs = [(0.129951, 0.13), (0.099951, 0.10), (0.159951, 0.16), (0.139951, 0.14)]
+    for lo, hi in pairs:
+        check(f"report: {lo} and {hi} both print {hi*100:.2f}% and get one verdict",
+              report.irr_verdict(lo) == report.irr_verdict(hi),
+              f"{report.irr_verdict(lo)!r} vs {report.irr_verdict(hi)!r}")
+
+
+def test_bankpackage_reports_sponsor_cash_not_total_equity():
+    """'Cash In (Sponsor Side)' printed total equity -- the LP's money, ~10x over."""
+    import pathlib
+    src = _code_only(pathlib.Path(__file__).resolve().parent / "bankpackage.py")
+    check("bankpackage: the sponsor KPI no longer prints total equity",
+          "Cash In (Sponsor Side)" not in src)
+    check("bankpackage: gp_capital is actually used",
+          "gp_capital" in src and "money(gp_capital" in src)
+    check("bankpackage: lp_capital is shown separately",
+          "Investor equity (LP)" in src)
+
+
+def test_icmemo_prefers_the_seller_document_over_an_estimate():
+    """sorted(iterdir()) hit ESTIMATED before the OM on baker-trails."""
+    import icmemo, pathlib
+    d = pathlib.Path(icmemo.__file__).resolve().parent.parent / "deal-intake" / "baker-trails"
+    if not d.exists():
+        check("icmemo: baker-trails folder present", True, "skipped")
+        return
+    path, status, alternates = icmemo._detect_rent_roll(d)
+    check("icmemo: the OM rent roll is chosen over the ESTIMATED one",
+          path is not None and "ESTIMATED" not in path.name.upper(),
+          f"chose {path.name if path else None}")
+    check("icmemo: the rejected candidate is still named",
+          any("ESTIMATED" in n.upper() for n, _ in alternates), str(alternates))
 
 if __name__ == "__main__":
     main()

@@ -30,7 +30,7 @@ ACQ_TEMPLATE = {
     "contract_services":    (0,      "stoa",    "Stoa carried 0 - folded into R&M"),
     "utilities":            (755,    "updated", "Stoa 692, escalated"),
     "other":                (105,    "updated", "Stoa 95, escalated"),
-    "insurance":            (2000,   "updated", "Stoa 1,164 (2023). LA insurance crisis - quote every deal"),
+    "insurance":            (None,   "derived", "$2,000/unit inland, $3,000/unit in the coastal-wind parishes (Orleans/Jefferson/St. Bernard/Plaquemines) per CLAUDE.md 2026-08-17. Stoa carried 1,164 (2023). QUOTE EVERY DEAL"),
     "mgmt_pct":             (None,   "derived", "8% under 50 units, 5% to 150, 3% above (Stoa self-managed at 3%)"),
     "asset_mgmt_pct":       (0.0,    "updated", "Stoa charged 1% of NRI; zero until you have an asset-mgmt entity"),
     "capex_unit":           (250,    "stoa",    "$250/unit/yr reserve"),
@@ -106,8 +106,48 @@ FRACTION_KEYS = {k for t in TEMPLATES.values() for k, (v, _, _) in t.items()
 FRACTION_KEYS |= {"exit_cap", "concessions"}
 
 
-def derive(key, units):
-    """Deal-size-dependent defaults."""
+# CLAUDE.md, settled 2026-08-17 by modelling one 12-unit building three ways:
+# "The $140K metro/inland gap IS wind insurance ($3,000/unit vs $2,000), which
+# hits Orleans and Jefferson identically." These are the coastal-wind parishes.
+_WIND_PARISHES = ("orleans", "jefferson", "st. bernard", "st bernard",
+                  "saint bernard", "plaquemines")
+
+# Towns that sit in a wind parish but whose names do not contain it. Matched as
+# whole words against the location string.
+_WIND_TOWNS = ("new orleans", "nola", "metairie", "kenner", "gretna", "marrero",
+               "harvey", "westwego", "chalmette", "arabi", "meraux", "violet",
+               "belle chasse", "algiers", "terrytown", "harahan", "river ridge",
+               "avondale", "estelle", "timberlane", "waggaman", "bridge city")
+
+
+def wind_exposed(location):
+    """True when a location sits in a coastal-wind parish (CLAUDE.md 2026-08-17)."""
+    if not location:
+        return None          # unknown, not False
+    low = str(location).lower()
+    return any(p in low for p in _WIND_PARISHES + _WIND_TOWNS)
+
+
+def derive(key, units, location=None):
+    """Deal-size- and geography-dependent defaults."""
+    if key == "insurance":
+        # Sweep 2026-09-28: `insurance` was a flat 2000 template value with NO
+        # geography rule anywhere in the repo, silently erasing the distinction
+        # the whole metro-vs-inland strategy rests on. At $2,000/unit the 13%
+        # clearing price for the same 12-unit building came out $122,852-$125,879
+        # HIGHER in Chalmette / Gretna / New Orleans than at CLAUDE.md's
+        # $3,000/unit - i.e. it told him he could pay ~$123K more than he can,
+        # and that ~$123-126K IS the $140K gap CLAUDE.md identifies as wind.
+        wind = wind_exposed(location)
+        if wind is None:
+            return 2000, ("no location given - $2,000/unit inland basis used; "
+                          "a coastal-wind parish (Orleans/Jefferson/St. Bernard/"
+                          "Plaquemines) needs $3,000. QUOTE EVERY DEAL")
+        if wind:
+            return 3000, (f"{location} is a coastal-wind parish - $3,000/unit for "
+                          f"wind (CLAUDE.md 2026-08-17). QUOTE EVERY DEAL")
+        return 2000, (f"{location} is inland - $2,000/unit (LA insurance crisis "
+                      f"basis). QUOTE EVERY DEAL")
     if units is None:
         return None, "unit count unknown - not written"
     if key == "payroll":
@@ -147,7 +187,7 @@ def parse_override(text):
     return k, val
 
 
-def resolve(model, units, parsed_keys, overrides):
+def resolve(model, units, parsed_keys, overrides, location=None):
     """-> list of {key, value, source, note} for every template input.
 
     parsed_keys: keys already supplied by the deal's own documents (skipped here
@@ -163,7 +203,7 @@ def resolve(model, units, parsed_keys, overrides):
             rows.append({"key": key, "value": None, "source": "deal docs", "note": "taken from the deal's own documents"})
             continue
         if source == "derived":
-            dval, dnote = derive(key, units)
+            dval, dnote = derive(key, units, location)
             rows.append({"key": key, "value": dval, "source": "derived", "note": dnote})
             continue
         rows.append({"key": key, "value": val, "source": source, "note": note})

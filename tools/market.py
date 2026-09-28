@@ -98,7 +98,13 @@ def bls_labor(fips):
     latest_rate = rates[-1][1]
     full_year = len(rates) >= 13
     yr_ago_rate = rates[-13][1] if full_year else rates[0][1]
-    lf_trend = (lf[-1][1] / lf[-13][1] - 1) * 100 if len(lf) >= 13 else 0.0
+    # Sweep 2026-09-28: the `else 0.0` printed "Labor force, 12mo: +0.0%" for a
+    # series too short to measure - an UNKNOWN published as data, and in the one
+    # direction that hides out-migration. A 6-month series falling 29,800 ->
+    # 28,800 (-3.36% over its own span) printed +0.0%. `full_year` is computed
+    # right above and already caveats the unemployment line; this line ignored
+    # it. None means "not measurable"; the caller prints n/a.
+    lf_trend = (lf[-1][1] / lf[-13][1] - 1) * 100 if len(lf) >= 13 else None
     return latest_rate, yr_ago_rate, lf_trend, full_year
 
 
@@ -118,8 +124,11 @@ def screen(parish):
     direction = "improving" if rate <= yr_ago else "worsening"
     ago_label = "yr ago" if full_year else "start of short series"
     print(f"Unemployment      : {rate:.1f}% ({ago_label} {yr_ago:.1f}%, {direction})")
-    print(f"Labor force, 12mo : {lf_trend:+.1f}%"
-          + ("  <- people leaving" if lf_trend < -0.5 else ""))
+    if lf_trend is None:
+        print("Labor force, 12mo : n/a - series too short for a 12-month change")
+    else:
+        print(f"Labor force, 12mo : {lf_trend:+.1f}%"
+              + ("  <- people leaving" if lf_trend < -0.5 else ""))
 
     key = os.environ.get("CENSUS_API_KEY")
     if not key:

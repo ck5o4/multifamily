@@ -166,10 +166,32 @@ def main():
                     help="do NOT reassess on purchase price; keep the seller's tax bill")
     ap.add_argument("--apply", action="store_true", help="write the deal workbook")
     ap.add_argument("--recalc", action="store_true", help="recalculate and report (implies --apply)")
+    ap.add_argument("--accept-part-year", action="store_true",
+                    help="write a part-year (e.g. YTD) operating statement as if annual. "
+                         "Understates every expense line; only for a statement you have "
+                         "confirmed covers a full year despite the blank columns.")
     args = ap.parse_args()
 
     if args.recalc:
         args.apply = True
+
+    # Sweep 2026-09-28: --apply without --price wrote the deal's real rent roll
+    # and T-12 on top of the MASTER'S DEMO PRICE and reported the result as the
+    # deal. On the control fixture that is NOI $103,432 against $600,000: a 17.2%
+    # going-in cap, DSCR 2.77, levered IRR 38.49% - a false PURSUE produced by a
+    # forgotten flag, not by a strange file. Nothing printed the word "price",
+    # and the reassessed-tax note is nested inside this same branch, so it never
+    # fired either. The dev path inherited Inverness's $6,750,000 land basis.
+    if args.apply and args.price is None:
+        _what = "purchase price" if args.model == "acq" else "land price"
+        raise SystemExit(
+            f"  ABORT: --apply needs --price ({_what}).\n"
+            f"    Without it the deal's parsed rents and expenses are written on top "
+            f"of the master model's demo price,\n"
+            f"    and every metric printed (cap rate, DSCR, IRR) is against that demo "
+            f"number rather than this deal's.\n"
+            f"    Re-run with --price <dollars>. Use a dry run (no --apply) to inspect "
+            f"the parse first.")
 
     spec = MODELS[args.model]
     deal_dir = INTAKE / args.deal
@@ -221,7 +243,23 @@ def main():
         for g in comp_groups:
             print(f"    {g['type']:<18}{g['units']:>7}{g['sf']:>8}{g['rent']:>9,}")
 
-    units = args.units_override or sum(g["units"] for g in groups) or None
+    # Sweep 2026-09-28: `args.units_override or sum(...)` let an override BEAT a
+    # rent roll that had already parsed. Every T-12 line was then divided by the
+    # override while the workbook's own unit count stayed at the roll's figure:
+    # `--units-override 40` against a 24-unit roll understated opex $57,456/yr,
+    # NOI $158,568, levered IRR 17.67% vs 2.70% - and the natural typo direction
+    # is to paste the listing's larger unit count. The flag exists to FILL IN a
+    # missing count, not to contradict a parsed one.
+    _roll_units = sum(g["units"] for g in groups) or None
+    if args.units_override and _roll_units and args.units_override != _roll_units:
+        raise SystemExit(
+            f"  ABORT: --units-override {args.units_override} contradicts the rent "
+            f"roll, which parsed {_roll_units} units.\n"
+            f"    The override divides every T-12 line while the workbook keeps the "
+            f"roll's count, so the two disagree silently.\n"
+            f"    Drop the flag to use the roll, or fix the roll if {args.units_override} "
+            f"is right.")
+    units = _roll_units or args.units_override or None
 
     if src.get("t12"):
         t12_lines, notes = parsers.parse_t12(src["t12"], units, sheet=args.sheet_t12)
@@ -331,6 +369,37 @@ def main():
             print("    If the vacancy input below is materially lower, NOI is overstated. "
                   "Set it with --set vacancy=<frac>.")
 
+    # Sweep 2026-09-28: `if t12_lines and units:` printed all eight expense
+    # lines to the screen and then wrote NONE of them when the unit count was
+    # unknown (T-12 with no rent roll and no override). The workbook kept the
+    # master's demo mix AND the template's $2,000/unit insurance in place of the
+    # seller's $84,000 - flattering every expense line, with no note saying the
+    # parse had been discarded.
+    # Sweep 2026-09-28: the PART-YEAR note was printed and then the half-year
+    # figures were written as annual anyway - the note was a decoration, not a
+    # gate, and it prints screens BELOW the verdict. On a 6-of-12-month fixture
+    # that is NOI $172,896 vs $101,112 and levered IRR 21.39% vs 2.70%.
+    # LIVE TODAY: discovery on hwy42-mhp picks 'P&L YTD 2026.xlsx' (JAN-JUN) over
+    # the full-year file, understating opex ~$33,900/yr.
+    _part_year = next((n for n in all_notes if "PART-YEAR STATEMENT" in n), None)
+    if _part_year and args.apply and not args.accept_part_year:
+        raise SystemExit(
+            f"  ABORT: {_part_year.split('t12: ')[-1]}\n"
+            f"    Writing it as annual understates every expense line and overstates "
+            f"NOI, cap rate and IRR.\n"
+            f"    Supply the full-year statement with --t12 <path>, or pass "
+            f"--accept-part-year if you have confirmed\n"
+            f"    this statement really does cover twelve months.")
+
+    if t12_lines and not units:
+        raise SystemExit(
+            "  ABORT: a T-12 parsed but the unit count is unknown, so every expense "
+            "line would be discarded\n"
+            "    after being printed above (the model keeps its template defaults "
+            "instead - they are lower).\n"
+            "    Supply a rent roll, or --units-override <n> if the count is known "
+            "from the listing.")
+
     if t12_lines and units:
         for key in ("payroll", "ga", "marketing", "rm", "contract_services",
                     "utilities", "other", "insurance"):
@@ -364,7 +433,10 @@ def main():
                       "assessor before offering. --keep-sellers-tax to disable.")
 
     if not args.no_defaults:
-        prov = defaults.resolve(args.model, units, parsed_keys, overrides)
+        # location drives the wind-insurance default ($3,000/unit in the coastal
+        # parishes vs $2,000 inland, CLAUDE.md 2026-08-17) as well as taxes.
+        prov = defaults.resolve(args.model, units, parsed_keys, overrides,
+                                location=args.location or args.address)
         for row in prov:
             ref = spec["scalars"].get(row["key"])
             if ref and row["value"] is not None:
