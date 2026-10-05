@@ -1153,15 +1153,29 @@ def tornado(inputs: dict) -> list[dict]:
 # Hardcoded Cholesky L for the 6x6 correlation matrix:
 #   order: [rent_growth, expense_growth, vacancy, insurance_mult, exit_cap_spread, turnover_rate]
 #   rho_rg_eg=0.3, rho_rg_vac=-0.5, rho_ins_cap=0.3, rho_rg_tr=-0.3, all others=0
-# Verified: L @ L.T reproduces the correlation matrix exactly.
-# Row 5 (turnover_rate): L[5][0]=-0.3, L[5][5]=sqrt(1-0.09)=sqrt(0.91)=0.9539392014
+# Sweep 2026-10-05: row 5 was WRONG and the "Verified" comment above it was
+# false. Setting L[5] = [-0.3, 0, 0, 0, 0, sqrt(0.91)] satisfies rho_rg_tr=-0.3
+# and the unit norm, but it is not the Cholesky factor: it leaves
+#   L@L.T[1][5] (eg~turnover)  = -0.090  where the spec says 0.000
+#   L@L.T[2][5] (vac~turnover) = +0.150  where the spec says 0.000
+# (realized on 100k draws: -0.0926 and +0.1480). The remaining columns of row 5
+# must absorb those, which is what the proper factorization below does. The
+# target matrix is positive definite (eigenvalues 0.344..1.656), and the
+# off-spec version happened to be PD too, which is why nothing ever blew up.
+# Effect on published numbers is within MC noise (12-seed mean +0.02 to +0.67pp
+# of beats-index against a per-seed sd of 0.8-1.9pp) and NO deterministic rung
+# moves, so this is a correctness fix, not a re-underwrite. Note for readers of
+# the board: at seed 42 alone it moves eden's $1,443,000 rung 48.24% -> 50.16%,
+# crossing the 50% line; the 12-seed mean is 49.65%, still below, and the
+# page's own +/-3pp coin-flip annotation fires either way.
+# test_regressions asserts L@L.T == R to 1e-9, which costs no draws.
 _CHOL_L = [
     [1.0000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000],
     [0.3000000000, 0.9539392014, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000],
     [-0.5000000000, 0.1572427255, 0.8516306273, 0.0000000000, 0.0000000000, 0.0000000000],
     [0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000, 0.0000000000, 0.0000000000],
     [0.0000000000, 0.0000000000, 0.0000000000, 0.3000000000, 0.9539392014, 0.0000000000],
-    [-0.3000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000, 0.9539392014],
+    [-0.3000000000, 0.0943456353, -0.1935524153, 0.0000000000, 0.0000000000, 0.9293203773],
 ]
 
 

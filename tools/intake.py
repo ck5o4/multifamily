@@ -331,6 +331,30 @@ def main():
     atexit.register(lambda: staging.exists() and staging.unlink())
     w = ModelWriter(staging, spec)
 
+    # Sweep 2026-10-05: the `if groups:` branch below is the unit-mix twin of
+    # the F1 price gate above. When nothing parsed, write_rent_roll was simply
+    # never called and Inputs!E3:H10 kept the MASTER'S DEMO MIX - 4 x 1BR @ $900
+    # + 4 x 2BR @ $1,100 - while the deal's own price and expenses were written
+    # around it. On a real 4-unit T-12 at --price 250000 --units-override 4 that
+    # produced 8 phantom units at $150,000/unit: NOI $47,222 vs $17,726, a
+    # going-in cap of 18.89% vs 7.09% and a levered IRR of 45.97% vs 4.08%, with
+    # no note mentioning the unit mix - and icmemo/bankpackage then read that
+    # workbook. The --units-override contradiction gate cannot fire here because
+    # there is no parsed roll to contradict. The realistic path is ordinary: the
+    # seller sent a T-12, the rent roll has not arrived yet.
+    if args.apply and not groups:
+        _what = "rent roll" if args.model == "acq" else "unit mix"
+        raise SystemExit(
+            f"  ABORT: --apply with no {_what} parsed.\n"
+            f"    Nothing was written to the unit-mix block, so the model would keep "
+            f"the MASTER'S DEMO MIX\n"
+            f"    (acq: 4 x 1BR/1BA @ $900 + 4 x 2BR/2BA @ $1,100) and this deal's "
+            f"price and expenses would be\n"
+            f"    underwritten against 8 units that do not exist. Every metric - GPR, "
+            f"NOI, cap, DSCR, IRR - would be wrong.\n"
+            f"    Supply the roll with --rent-roll <path> (or --sheet-rentroll <name>), "
+            f"or run without --apply to inspect the parse.")
+
     if groups:
         dropped = write_unit_mix(w, spec, groups) if args.model == "dev" else write_rent_roll(w, spec, groups)
         if dropped:

@@ -81,6 +81,15 @@ def _norm(s):
     # and intake then SKIPPED tax reassessment with only a NOTES line)
     key = re.sub(r"\s+\d{5}(-\d{4})?$", "", key)
     key = re.sub(r"\s+(la|louisiana)$", "", key)
+    # Sweep 2026-10-05: tools/README.md promises "Town names or parish names
+    # both work", but "Ascension Parish", "Orleans Parish" and "East Baton Rouge
+    # Parish" all resolved to None, and the loud failure path freezes taxes
+    # across every trial price - an optimistic ladder, on a string a human types
+    # naturally. market.py:150 and jobs.py:297 already strip this word.
+    # No MILLAGE key contains "parish", so this cannot shadow one; and
+    # "Jefferson Davis Parish" correctly stays unresolved rather than becoming
+    # Jefferson.
+    key = re.sub(r"\s+parish$", "", key)
     return key.strip()
 
 
@@ -104,6 +113,60 @@ def resolve_parish(location):
                   "Baton Rouge, New Orleans, Hammond, Gonzales, Prairieville, Denham Springs, "
                   "Walker, LaPlace, Slidell, Covington, Mandeville, Metairie, Kenner, "
                   "Port Allen, Plaquemine. Or name the parish directly.")
+
+
+def infer_parish(location):
+    """Resolve a town, parish name OR street address to a parish.
+
+    -> (parish_key, how) or (None, reason).
+
+    Sweep 2026-10-05. `defaults.wind_exposed` decided the $2,000-vs-$3,000
+    wind-insurance basis by raw substring test against a hand-kept town tuple,
+    which was wrong in both directions: six towns this module places in a wind
+    parish (poydras/St. Bernard, elmwood/Jefferson, port sulphur, buras,
+    boothville, venice/Plaquemines) returned False and were written up as
+    "is inland", while any string merely CONTAINING a wind name matched -
+    "5555 Jefferson Hwy, Baton Rouge", "1234 Harvey Ln, Baton Rouge",
+    "900 Algiers St, Lafayette" and the real, non-coastal "Jefferson Davis
+    Parish" all read as coastal.
+
+    So geography is resolved here, once, against CITY_TO_PARISH:
+      1. exact parish or town name (via resolve_parish),
+      2. for anything that explicitly says "<name> Parish" and did not resolve,
+         STOP - do not token-match, or "Jefferson Davis Parish" becomes
+         Jefferson,
+      3. otherwise treat it as an address: whole-token city match, longest
+         match wins, ties broken toward the END of the string (the city
+         position), so "Central Ave, Metairie" is Jefferson and not EBR.
+    Unresolvable returns None so callers can disclose "unknown" rather than
+    assert a basis.
+    """
+    raw = str(location or "").strip().lower().replace(",", "")
+    if not raw:
+        return None, "no location given"
+
+    parish, how = resolve_parish(location)
+    if parish:
+        return parish, how
+
+    if re.search(r"\bparish\b", raw):
+        return None, (f"{location!r} names a parish that is not in the millage "
+                      f"table. Known: {', '.join(sorted(MILLAGE))}")
+
+    tokens = _norm(location).split()
+    best = None   # (end_index, n_words, parish)
+    for city, par in CITY_TO_PARISH.items():
+        ct = city.split()
+        n = len(ct)
+        for i in range(len(tokens) - n + 1):
+            if tokens[i:i + n] == ct:
+                cand = (i + n, n, par)
+                if best is None or cand[:2] > best[:2]:
+                    best = cand
+    if best:
+        return best[2], (f"matched town {' '.join(tokens[best[0]-best[1]:best[0]])!r} "
+                         f"in {best[2].title()} Parish")
+    return None, (f"no known Louisiana town found in {location!r}")
 
 
 def validate_commercial_share(commercial_share):

@@ -9,6 +9,7 @@ A scheduled cloud session republishes the output to the standing artifact URL.
 
 import datetime
 import html
+from html import escape as _escape   # main() binds a local named `html`
 import json
 import math
 import random
@@ -345,7 +346,16 @@ def main():
 
     watch_rows, dead_rows = [], []
     for name, rec in deals.items():
-        why = DEAD_WHY.get(name, (rec.get("history") or [{}])[-1].get("note", "")[:160])
+        # Sweep 2026-10-05: the fallback branch interpolated a deals.json note
+        # into HTML unescaped. Latent today only because all 7 watch/dead deals
+        # happen to have DEAD_WHY entries (deliberate author markup), so the
+        # fallback never executes - but 13 notes across 5 deals already contain
+        # < > &, and one `portfolio.py add <name> --stage watching` without a
+        # DEAD_WHY entry puts a raw note on the published page. [:160] can also
+        # truncate mid-entity. render_todos already escapes both its fields.
+        why = DEAD_WHY.get(
+            name,
+            _escape((rec.get("history") or [{}])[-1].get("note", "")[:160]))
         row = (f'<div class="row-deal"><span class="name">{name.replace("-", " ").title()} '
                f'<span class="pill {"watch" if rec.get("stage") == "watching" else "dead"}">'
                f'{rec.get("stage", "?").title()}</span></span>'

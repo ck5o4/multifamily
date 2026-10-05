@@ -75,7 +75,15 @@ def gather(deal, force=False):
     if deal_dir.exists():
         try:
             import icmemo as _ic
-            _rr_path, rr_status = _ic._detect_rent_roll(deal_dir)
+            # Sweep 2026-10-05: _detect_rent_roll started returning
+            # (path, status, alternates) in the 2026-09-28 F26 fix and this
+            # caller was never updated, so EVERY run raised ValueError here,
+            # was swallowed by the handler below, and the package either
+            # refused outright or -- with --force -- told a lender "no rent
+            # roll file in the deal folder" and "no trailing-12 on file" over
+            # eden's rentroll_eden_FROM_SELLER.csv and PL_2025_ACTUALS.xlsx,
+            # while the same-day IC memo listed both as present.
+            _rr_path, rr_status, _rr_alts = _ic._detect_rent_roll(deal_dir)
             rr_status = rr_status or "missing"
             t12_missing = _ic._detect_t12(deal_dir) is None
             _hist = " ".join(h.get("note", "") for h in _rec.get("history", []))
@@ -286,7 +294,8 @@ location/condition]</span></p>
 <table>
   <tr><th colspan="2">Sources</th></tr>
   {row('Loan proceeds', money(loan))}
-  {row('Sponsor equity', money(equity))}
+  {row('Sponsor cash (GP)', money(gp_capital))}
+  {row('Investor equity (LP)', money(lp_capital))}
   {row('Total sources', money((loan or 0) + (equity or 0)), bold=True)}
   <tr><th colspan="2">Uses</th></tr>
   {row('Purchase price', money(price))}

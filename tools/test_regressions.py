@@ -1049,6 +1049,30 @@ def test_board_says_the_residual_levee_risk_out_loud():
     check("board: the residual-risk half of flood.py's sentence is present",
           "residual risk is real" in src)
 
+    # Sweep 2026-10-05: the two checks above are a grep over board.py's
+    # hand-typed HTML strings -- they never call flood.py, so deleting its
+    # whole levee branch left them passing, and test_flood_degrades_to_unknown_
+    # not_clear covers [] / D / X / AE with no LEVEE subtype at all. CLAUDE.md
+    # requires the residual-risk sentence for levee-protected Orleans, so
+    # assert it where it is generated.
+    import flood
+    zone, sfha, note = flood.interpret([{
+        "FLD_ZONE": "X",
+        "ZONE_SUBTY": "AREA WITH REDUCED FLOOD RISK DUE TO LEVEE",
+        "SFHA_TF": "F"}])
+    check("flood: a levee-protected X zone is reported as levee-driven",
+          "LEVEE" in zone.upper(), zone)
+    check("flood: it is not in the SFHA", sfha is False, str(sfha))
+    check("flood: it says the residual risk out loud (CLAUDE.md)",
+          "residual risk is real" in note, note)
+    check("flood: it does not call a levee zone minimal hazard",
+          "minimal flood hazard" not in note.lower(), note)
+
+    # A plain X must NOT pick up the levee sentence, or the branch is dead.
+    _z, _s, plain = flood.interpret([{"FLD_ZONE": "X", "ZONE_SUBTY": "", "SFHA_TF": "F"}])
+    check("flood: a plain X zone is distinguished from a levee X",
+          "residual risk is real" not in plain, plain)
+
 
 def main():
     print("REGRESSION TESTS (2026-08-09 sweep)")
@@ -1122,6 +1146,12 @@ def main():
     test_board_says_the_residual_levee_risk_out_loud()
     print("REGRESSION TESTS (2026-10-05 sweep)")
     test_parity_harness_cannot_pass_on_zero_comparisons()
+    test_board_escapes_a_note_and_still_renders()
+    test_writer_refuses_an_incoming_formula()
+    test_apply_refuses_when_no_rent_roll_parsed()
+    test_chol_factor_reproduces_the_declared_correlations()
+    test_bankpackage_sees_the_documents_that_are_on_disk()
+    test_wind_basis_agrees_with_the_parish_table()
     test_generators_refuse_to_overwrite_a_master()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
@@ -1582,6 +1612,358 @@ def test_parity_harness_cannot_pass_on_zero_comparisons():
     missing = [d for d in on_disk if f'"{d}"' not in src]
     check("parity: every deal with a workbook is covered by the harness",
           not missing, f"uncovered: {missing}")
+
+
+def test_board_escapes_a_note_and_still_renders():
+    """board.py injected a deals.json note into HTML unescaped.
+
+    Latent only because all 7 watch/dead deals happen to carry DEAD_WHY
+    entries, so the fallback branch never ran -- but 13 notes across 5 deals
+    already contain < > &, and one `portfolio.py add <name> --stage watching`
+    without a DEAD_WHY entry publishes a raw note.
+
+    This test RUNS main(), because the obvious fix does not work: main() binds
+    a local named `html` further down, which makes `html` local for the whole
+    function, so `html.escape(...)` at the top raised UnboundLocalError and
+    board.py crashed outright. A source grep for "html.escape" would have
+    passed while the board was dead (the same shape as the bankpackage
+    tuple-unpack bug). Hence the alias `_escape` and a real render here.
+    """
+    import pathlib
+    import tempfile
+
+    import board
+
+    # 1. It must actually render.
+    tmp = pathlib.Path(tempfile.mkdtemp()) / "board.html"
+    original_out = board.OUT
+    board.OUT = tmp
+    try:
+        try:
+            board.main()
+        except Exception as exc:                      # noqa: BLE001
+            check("board: main() renders without raising",
+                  False, f"{type(exc).__name__}: {exc}")
+            return
+        check("board: main() renders without raising", True)
+        rendered = tmp.read_text()
+        check("board: the render is non-trivial", len(rendered) > 5000,
+              f"{len(rendered)} bytes")
+    finally:
+        board.OUT = original_out
+
+    # 2. The fallback branch must escape. Drive it directly with a note that
+    #    would break the page, rather than trusting that it is unreachable.
+    hostile = 'ask <b>$1M</b> & carry <script>x</script>'
+    escaped = board._escape(hostile[:160])
+    check("board: the note escaper neutralises tags",
+          "<b>" not in escaped and "&lt;b&gt;" in escaped, escaped)
+    check("board: the note escaper neutralises ampersands",
+          "&amp;" in escaped, escaped)
+    check("board: the note escaper neutralises script tags",
+          "<script>" not in escaped, escaped)
+
+    # 3. And the fallback site must use it (not the shadowed `html` name).
+    src = _code_only(pathlib.Path(board.__file__))
+    check("board: the DEAD_WHY fallback escapes the note",
+          "_escape((rec.get(\"history\")" in src)
+    check("board: the fallback does not use the name main() shadows",
+          "html.escape((rec.get(\"history\")" not in src)
+
+
+def test_writer_refuses_an_incoming_formula():
+    """The formula guard inspected only the cell's EXISTING value.
+
+    A string starting with "=" could be written INTO a documented input cell,
+    and openpyxl stores it with data_type='f' -- a live formula where a value
+    belongs. Reachable from a file: parse_rent_roll keys an unresolved row on
+    its raw label and write_rent_roll writes that label verbatim into
+    Inputs!F3:F10, so a broker CSV row "103,=SUM(H3:H10)*9,850,900" put
+    `=SUM(H3:H10)*9` into Inputs!F4. In the dev model Inputs!H3 does
+    VLOOKUP(F3, ...), so column F is load-bearing.
+    """
+    import pathlib
+    import shutil
+    import tempfile
+
+    import cellmap
+    import safe_writer
+
+    root = pathlib.Path(safe_writer.__file__).resolve().parent.parent
+    spec = cellmap.ACQ
+    master = root / spec["file"]
+    if not master.exists():
+        check("writer: master present", True, "skipped")
+        return
+
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    try:
+        dest = tmp / "probe.xlsx"
+        shutil.copy2(master, dest)
+        w = safe_writer.ModelWriter(dest, spec)
+
+        # A plain value into a declared input cell must still work.
+        w.set("Inputs!B2", 1_250_000)
+        check("writer: an ordinary value still writes", True)
+
+        # Every formula shape must be refused, on both entry points.
+        for bad in ("=SUM(H3:H10)*9", "=Inputs!B2*2", "  =1+1", "=cmd|'/c calc'!A1"):
+            raised = False
+            try:
+                w.set("Inputs!B2", bad)
+            except safe_writer.FormulaGuardError:
+                raised = True
+            check(f"writer: set() refuses the incoming formula {bad.strip()[:18]!r}",
+                  raised, "it was written")
+
+        raised = False
+        try:
+            # Inputs!F3 is inside the rent-roll paste range: the live path.
+            w.set_rc("Inputs", 3, 6, "=SUM(H3:H10)*9")
+        except safe_writer.FormulaGuardError:
+            raised = True
+        check("writer: set_rc() refuses an incoming formula in a paste range",
+              raised, "it was written")
+
+        # And the pre-existing refusals must be untouched.
+        for ref in ("Inputs!B52", "Annual CF!D25"):
+            raised = False
+            try:
+                w.set(ref, 1)
+            except safe_writer.FormulaGuardError:
+                raised = True
+            check(f"writer: still refuses to overwrite the formula at {ref}", raised)
+
+        # clear_block writes None and must keep working.
+        w.clear_block("Inputs", 3, 3, 6, 6)
+        check("writer: clear_block (None) is unaffected", True)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_apply_refuses_when_no_rent_roll_parsed():
+    """--apply with no parsed roll kept the MASTER'S DEMO unit mix.
+
+    write_rent_roll sits behind `if groups:`; when nothing parsed it was never
+    called, so Inputs!E3:H10 kept 4 x 1BR @ $900 + 4 x 2BR @ $1,100 while the
+    deal's own price and expenses were written around it. A real 4-unit T-12 at
+    --price 250000 --units-override 4 produced 8 phantom units at $150,000/unit:
+    NOI $47,222 vs $17,726, cap 18.89% vs 7.09%, levered IRR 45.97% vs 4.08%,
+    no note. This is the unit-mix twin of the F1 price gate.
+    """
+    import pathlib
+
+    import intake
+
+    src = _code_only(pathlib.Path(intake.__file__))
+    check("intake: there is a gate on --apply with no parsed groups",
+          "if args.apply and not groups:" in src)
+    check("intake: the gate raises rather than appending a note",
+          "ABORT: --apply with no" in src)
+    check("intake: the gate names the demo mix as the consequence",
+          "MASTER'S DEMO MIX" in src)
+    # The gate must sit BEFORE the write block it protects.
+    gate = src.index("if args.apply and not groups:")
+    write = src.index("if groups:\n        dropped = write_unit_mix")
+    check("intake: the gate precedes the unit-mix write", gate < write,
+          f"gate@{gate} write@{write}")
+
+
+def test_chol_factor_reproduces_the_declared_correlations():
+    """_CHOL_L row 5 did not reproduce the declared correlation matrix.
+
+    L[5] = [-0.3, 0, 0, 0, 0, sqrt(0.91)] satisfies rho(rg,turnover) = -0.3 and
+    the unit norm, but is not the Cholesky factor: it leaked
+    rho(expense_growth, turnover) = -0.090 and rho(vacancy, turnover) = +0.150
+    where the spec declares both 0.000 (realized -0.0926 / +0.1480 on 100k
+    draws), and the comment above it claimed "Verified: L @ L.T reproduces the
+    correlation matrix exactly".
+
+    test_mc's correlation test could not catch it: it samples _tri_icdf where
+    the engine uses _pw_icdf, checks only 3 of the 15 pairs (neither of the
+    broken ones), and both corrupted values sit inside its +/-0.15 tolerance.
+    This assertion is on the constant itself, so it costs no draws and cannot
+    be defeated by tolerance.
+    """
+    import pymodel
+
+    L = pymodel._CHOL_L
+    n = len(L)
+    check("mc: the Cholesky factor is 6x6", n == 6 and all(len(r) == 6 for r in L))
+
+    # The declared matrix, from the comment block above _CHOL_L.
+    # order: rent_growth, expense_growth, vacancy, insurance_mult,
+    #        exit_cap_spread, turnover_rate
+    R = [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
+    for i, j, v in ((0, 1, 0.3), (0, 2, -0.5), (3, 4, 0.3), (0, 5, -0.3)):
+        R[i][j] = R[j][i] = v
+
+    worst, where = 0.0, None
+    for i in range(n):
+        for j in range(n):
+            got = sum(L[i][k] * L[j][k] for k in range(n))
+            if abs(got - R[i][j]) > worst:
+                worst, where = abs(got - R[i][j]), (i, j, got, R[i][j])
+    check("mc: L @ L.T reproduces the declared correlation matrix (1e-9)",
+          worst < 1e-9,
+          f"worst |L@L.T - R| = {worst:.6f} at {where}")
+
+    # Lower-triangular, and every row a unit vector (else a marginal is not
+    # standard normal and every recentring claim is off).
+    check("mc: the factor is lower-triangular",
+          all(abs(L[i][j]) < 1e-12 for i in range(n) for j in range(i + 1, n)))
+    norms = [sum(x * x for x in row) for row in L]
+    check("mc: every row of the factor has unit norm",
+          all(abs(v - 1.0) < 1e-9 for v in norms),
+          str([round(v, 12) for v in norms]))
+
+
+def test_bankpackage_sees_the_documents_that_are_on_disk():
+    """bankpackage was DEAD: a 3-tuple unpacked into 2 names.
+
+    The 2026-09-28 F26 fix made icmemo._detect_rent_roll return
+    (path, status, alternates); bankpackage.py:78 still unpacked two. Every run
+    raised ValueError, the fail-closed handler swallowed it, and the package
+    either refused outright or -- with --force -- told a LENDER "no rent roll
+    file in the deal folder" and "no trailing-12 operating statement on file"
+    over eden's rentroll_eden_FROM_SELLER.csv and PL_2025_ACTUALS.xlsx, while
+    the same-day IC memo listed both as present.
+
+    test_bankpackage_diligence_gates_fail_closed could not catch it: it asserts
+    only that a broken check refuses, which the bug itself satisfies.
+    """
+    import contextlib
+    import io
+    import pathlib
+
+    import bankpackage
+
+    root = pathlib.Path(bankpackage.__file__).resolve().parent.parent
+    deal = "eden-church-mhp"
+    if not (root / "deal-intake" / deal).exists():
+        check(f"bankpackage: {deal} folder present", True, "skipped")
+        return
+
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        with contextlib.redirect_stdout(io.StringIO()):
+            try:
+                bankpackage.gather(deal, force=True)
+            except SystemExit:
+                pass
+            except Exception as exc:          # noqa: BLE001
+                check("bankpackage: gather() does not raise on a real deal",
+                      False, f"{type(exc).__name__}: {exc}")
+                return
+    stderr = err.getvalue()
+
+    # The bug's signature.
+    check("bankpackage: the diligence check no longer errors out",
+          "diligence-gap check failed" not in stderr, stderr[:200])
+    check("bankpackage: no tuple-unpack error",
+          "too many values to unpack" not in stderr, stderr[:200])
+
+    # And it must actually SEE the seller documents sitting in the folder.
+    import icmemo
+    rr = icmemo._detect_rent_roll(root / "deal-intake" / deal)
+    check("bankpackage: _detect_rent_roll still returns 3 values",
+          len(rr) == 3, f"returned {len(rr)}")
+    check(f"bankpackage: {deal}'s seller rent roll is detected",
+          rr[1] == "actual", f"status={rr[1]!r} path={rr[0]}")
+    check(f"bankpackage: {deal}'s T-12 is detected",
+          icmemo._detect_t12(root / "deal-intake" / deal) is not None)
+
+    # Sources & Uses must not call the LP's money the sponsor's (F25 fixed the
+    # KPI tile and the Sponsor table but not this third place, 10x on all three
+    # live deals: eden $471,472 vs GP $47,147).
+    src = _code_only(pathlib.Path(bankpackage.__file__))
+    check("bankpackage: Sources & Uses no longer prints 'Sponsor equity'",
+          "'Sponsor equity'" not in src)
+    check("bankpackage: Sources & Uses splits GP cash from LP equity",
+          src.count("money(gp_capital)") >= 2 and src.count("money(lp_capital)") >= 2,
+          f"gp={src.count('money(gp_capital)')} lp={src.count('money(lp_capital)')}")
+
+
+def test_wind_basis_agrees_with_the_parish_table():
+    """wind_exposed() substring-matched a hand-kept town tuple, wrong BOTH ways.
+
+    Six towns latax places in a wind parish were absent from the tuple, so they
+    returned False -- not None -- and derive() wrote them up as "<town> is
+    inland - $2,000/unit". poydras (St. Bernard) and elmwood (Jefferson) are
+    both in the buy box; on one 12-unit building poydras cleared 13% at
+    $640,000 against chalmette's $517,000 -- same parish, same millage,
+    $123,000 apart purely because "chalmette" was in the tuple.
+    In the other direction any string CONTAINING a wind name matched:
+    "5555 Jefferson Hwy, Baton Rouge" took $3,000/unit and understated its
+    clearing price by $96,000, and the inland "Jefferson Davis Parish" read as
+    coastal. The old test only checked towns that were already in the tuple, so
+    it could never see the gap -- hence the cross-check below.
+    """
+    import defaults
+    import latax
+
+    wind = {"orleans", "jefferson", "st. bernard", "plaquemines"}
+
+    # Every town the tax math knows must get the same answer from the
+    # insurance basis. This is the assertion whose absence hid the bug.
+    mismatched = []
+    for town, parish in latax.CITY_TO_PARISH.items():
+        got = defaults.wind_exposed(town)
+        if got is not (parish in wind):
+            mismatched.append((town, parish, got))
+    check("defaults: wind basis agrees with latax.CITY_TO_PARISH for every town",
+          not mismatched, f"{mismatched[:6]}")
+
+    # The specific towns that regressed.
+    for town in ("poydras", "elmwood", "port sulphur", "buras", "boothville", "venice"):
+        if town not in latax.CITY_TO_PARISH:
+            continue
+        amount, note = defaults.derive("insurance", 12, town)
+        check(f"defaults: {town} takes the $3,000 wind basis",
+              amount == 3000, f"${amount} / {note[:70]}")
+        check(f"defaults: {town} is not described as inland",
+              "inland" not in note.lower(), note[:70])
+
+    # A street address must resolve on its CITY, not on a substring hit.
+    for addr, expect_wind in (
+            ("5555 Jefferson Hwy, Baton Rouge", False),
+            ("1234 Harvey Ln, Baton Rouge", False),
+            ("900 Algiers St, Lafayette", False),
+            ("77 Kenner Ave, Hammond", False),
+            ("Central Ave, Metairie", True),
+            ("400 Elmwood Park Blvd, Harahan", True)):
+        check(f"defaults: {addr!r} -> wind={expect_wind}",
+              defaults.wind_exposed(addr) is expect_wind,
+              f"got {defaults.wind_exposed(addr)}")
+
+    # A real parish that merely starts with a wind-parish word is NOT coastal,
+    # and must read as unknown rather than being guessed either way.
+    check("defaults: 'Jefferson Davis Parish' is not treated as coastal",
+          defaults.wind_exposed("Jefferson Davis Parish") is not True,
+          f"got {defaults.wind_exposed('Jefferson Davis Parish')}")
+    check("latax: 'Jefferson Davis Parish' does not resolve to Jefferson",
+          latax.infer_parish("Jefferson Davis Parish")[0] is None,
+          str(latax.infer_parish("Jefferson Davis Parish")))
+
+    # An unresolved location must not be asserted as inland.
+    _amt, note = defaults.derive("insurance", 12, "Jefferson Davis Parish")
+    check("defaults: an unresolved location says ASSUMED, not 'is inland'",
+          "inland basis ASSUMED" in note and "Parish is inland" not in note,
+          note[:90])
+
+    # "<Parish> Parish" is what a human types, and tools/README.md promises it
+    # works. All three of these resolved to None before 2026-10-05, and the
+    # loud failure path freezes taxes across every trial price.
+    for text, expect in (("Ascension Parish", "ascension"),
+                         ("Orleans Parish", "orleans"),
+                         ("East Baton Rouge Parish", "east baton rouge"),
+                         ("St. Tammany Parish", "st. tammany")):
+        got, _why = latax.resolve_parish(text)
+        check(f"latax: {text!r} resolves to {expect}", got == expect, f"got {got}")
+
+    # And the word "parish" must not shadow a millage key.
+    check("latax: no millage key contains 'parish'",
+          not any("parish" in k for k in latax.MILLAGE))
 
 
 def test_generators_refuse_to_overwrite_a_master():

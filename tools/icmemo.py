@@ -179,19 +179,15 @@ def _infer_parish(address: str):
     Tokenizes via latax._norm (commas/state/zip stripped), matches multi-word
     city names as whole token runs, longest match, preferring matches nearest
     the END of the string (the city position). Fixes 'Central Ave, Metairie'
-    resolving to EBR via the unanchored substring 'central'."""
-    from latax import CITY_TO_PARISH, _norm
-    tokens = _norm(address).split()
-    best = None  # (end_index, n_words, parish)
-    for city, par in CITY_TO_PARISH.items():
-        ct = city.split()
-        n = len(ct)
-        for i in range(len(tokens) - n + 1):
-            if tokens[i:i + n] == ct:
-                cand = (i + n, n, par)
-                if best is None or cand[:2] > best[:2]:
-                    best = cand
-    return best[2] if best else None
+    resolving to EBR via the unanchored substring 'central'.
+
+    Sweep 2026-10-05: this algorithm moved to latax.infer_parish so the tax
+    math and defaults.wind_exposed resolve geography through ONE table. It was
+    the only correct resolver in the repo while defaults.wind_exposed did a raw
+    substring test; keeping two copies is what let them disagree."""
+    from latax import infer_parish
+    parish, _why = infer_parish(address)
+    return parish
 
 
 def _is_mhp(deal: str, wb_path: Path) -> bool:

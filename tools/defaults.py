@@ -10,6 +10,8 @@ documents > template default.
 
 import sys
 
+import latax
+
 # value, source, note
 # source: "stoa"    = Stoa's exact tested figure, unchanged
 #         "updated" = changed from Stoa, reason recorded (see Benchmarks tabs)
@@ -108,24 +110,36 @@ FRACTION_KEYS |= {"exit_cap", "concessions"}
 
 # CLAUDE.md, settled 2026-08-17 by modelling one 12-unit building three ways:
 # "The $140K metro/inland gap IS wind insurance ($3,000/unit vs $2,000), which
-# hits Orleans and Jefferson identically." These are the coastal-wind parishes.
-_WIND_PARISHES = ("orleans", "jefferson", "st. bernard", "st bernard",
-                  "saint bernard", "plaquemines")
-
-# Towns that sit in a wind parish but whose names do not contain it. Matched as
-# whole words against the location string.
-_WIND_TOWNS = ("new orleans", "nola", "metairie", "kenner", "gretna", "marrero",
-               "harvey", "westwego", "chalmette", "arabi", "meraux", "violet",
-               "belle chasse", "algiers", "terrytown", "harahan", "river ridge",
-               "avondale", "estelle", "timberlane", "waggaman", "bridge city")
+# hits Orleans and Jefferson identically." These are the coastal-wind parishes,
+# as latax parish keys.
+_WIND_PARISHES = ("orleans", "jefferson", "st. bernard", "plaquemines")
 
 
 def wind_exposed(location):
-    """True when a location sits in a coastal-wind parish (CLAUDE.md 2026-08-17)."""
+    """True when a location sits in a coastal-wind parish (CLAUDE.md 2026-08-17).
+
+    -> True / False / None (could not resolve - never guess).
+
+    Sweep 2026-10-05: this tested `any(p in location.lower() for p in ...)`
+    against a hand-kept town tuple, and was wrong BOTH ways. Six towns latax
+    places in a wind parish were missing from the tuple, so they returned False
+    - not None - and derive() wrote them up as "<town> is inland - $2,000/unit":
+    poydras (St. Bernard) and elmwood (Jefferson) are both in the buy box.
+    Poydras priced $123,000 (+23.8%) above Chalmette's clearing price on the
+    same 12-unit building, the two differing only because "chalmette" was in the
+    tuple. In the other direction any string CONTAINING a wind name matched, so
+    "5555 Jefferson Hwy, Baton Rouge" (a real BR multifamily corridor) took
+    $3,000/unit and understated its 13% clearing price by $127,000 (19.2%), and
+    the genuinely inland "Jefferson Davis Parish" read as coastal.
+    Geography now resolves through latax.infer_parish against the same
+    CITY_TO_PARISH table the tax math uses, so the two can no longer disagree.
+    """
     if not location:
         return None          # unknown, not False
-    low = str(location).lower()
-    return any(p in low for p in _WIND_PARISHES + _WIND_TOWNS)
+    parish, _why = latax.infer_parish(location)
+    if parish is None:
+        return None          # unresolved is unknown, not "inland"
+    return parish in _WIND_PARISHES
 
 
 def derive(key, units, location=None):
@@ -140,14 +154,25 @@ def derive(key, units, location=None):
         # and that ~$123-126K IS the $140K gap CLAUDE.md identifies as wind.
         wind = wind_exposed(location)
         if wind is None:
-            return 2000, ("no location given - $2,000/unit inland basis used; "
-                          "a coastal-wind parish (Orleans/Jefferson/St. Bernard/"
-                          "Plaquemines) needs $3,000. QUOTE EVERY DEAL")
+            # Either no location at all, or one that did not resolve. Say which:
+            # asserting "is inland" about an unresolved string is how poydras
+            # got a $2,000 basis (sweep 2026-10-05).
+            if not location:
+                return 2000, ("no location given - $2,000/unit inland basis used; "
+                              "a coastal-wind parish (Orleans/Jefferson/St. Bernard/"
+                              "Plaquemines) needs $3,000. QUOTE EVERY DEAL")
+            _p, _why = latax.infer_parish(location)
+            return 2000, (f"could not place {location!r} in a parish ({_why}) - "
+                          f"$2,000/unit inland basis ASSUMED, not determined. If this "
+                          f"is Orleans/Jefferson/St. Bernard/Plaquemines it needs "
+                          f"$3,000. QUOTE EVERY DEAL")
+        parish, _why = latax.infer_parish(location)
         if wind:
-            return 3000, (f"{location} is a coastal-wind parish - $3,000/unit for "
-                          f"wind (CLAUDE.md 2026-08-17). QUOTE EVERY DEAL")
-        return 2000, (f"{location} is inland - $2,000/unit (LA insurance crisis "
-                      f"basis). QUOTE EVERY DEAL")
+            return 3000, (f"{parish.title()} Parish is coastal-wind ({_why}) - "
+                          f"$3,000/unit for wind (CLAUDE.md 2026-08-17). "
+                          f"QUOTE EVERY DEAL")
+        return 2000, (f"{parish.title()} Parish is inland ({_why}) - $2,000/unit "
+                      f"(LA insurance crisis basis). QUOTE EVERY DEAL")
     if units is None:
         return None, "unit count unknown - not written"
     if key == "payroll":

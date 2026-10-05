@@ -42,11 +42,28 @@ class ModelWriter:
         rgb = getattr(f.color, "rgb", None)
         return isinstance(rgb, str) and rgb.upper()[-6:] == BLUE_RGB[-6:]
 
-    def _assert_writable(self, sheet, cell):
+    def _assert_writable(self, sheet, cell, value=None):
         cur = cell.value
         if isinstance(cur, str) and cur.startswith("="):
             raise FormulaGuardError(
                 f"{sheet}!{cell.coordinate} holds a formula ({cur[:40]}...) - refusing to write"
+            )
+        # Sweep 2026-10-05: the guard inspected only the EXISTING value, never
+        # the incoming one, so a string starting with "=" could be written INTO
+        # a documented input cell and openpyxl would store it with
+        # data_type='f' - a live formula in an input cell. Reachable from a
+        # file, not just a hand-written call: parse_rent_roll keys an
+        # unresolved row on its raw label and write_rent_roll puts that label
+        # verbatim into Inputs!F3:F10, so a broker CSV row
+        # "103,=SUM(H3:H10)*9,850,900" landed `=SUM(H3:H10)*9` in Inputs!F4.
+        # In the development model Inputs!H3 does VLOOKUP(F3, ...), so column F
+        # is load-bearing.
+        if isinstance(value, str) and value.lstrip().startswith("="):
+            raise FormulaGuardError(
+                f"refusing to write a FORMULA into {sheet}!{cell.coordinate}: "
+                f"{value[:40]!r}. Input cells hold values, not formulas; a "
+                f"parsed label or rent that looks like this is a parse error "
+                f"or a spreadsheet-injection attempt in the source file."
             )
         if self._is_blue_input(cell) or self._in_paste_range(sheet, cell.row, cell.column):
             return
@@ -58,7 +75,7 @@ class ModelWriter:
         sheet, coord = parse_ref(ref)
         ws = self.wb[sheet]
         cell = ws[coord]
-        self._assert_writable(sheet, cell)
+        self._assert_writable(sheet, cell, value)
         old = cell.value
         cell.value = value
         self.writes.append((ref, old, value))
@@ -66,7 +83,7 @@ class ModelWriter:
     def set_rc(self, sheet, row, col, value):
         ws = self.wb[sheet]
         cell = ws.cell(row=row, column=col)
-        self._assert_writable(sheet, cell)
+        self._assert_writable(sheet, cell, value)
         old = cell.value
         cell.value = value
         self.writes.append((f"{sheet}!{cell.coordinate}", old, value))
