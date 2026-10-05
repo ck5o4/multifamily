@@ -27,6 +27,11 @@ INTAKE = ROOT / "deal-intake"
 TOL_DOLLAR = 1.0      # $1 tolerance on dollar figures
 TOL_RATE = 0.0001     # 0.01% tolerance on IRR/cap rates
 
+# A recalculated acquisition workbook yields 21-22 non-null expected values.
+# Anything near zero means the formulas were never evaluated, so a "pass" would
+# be vacuous. See _run_deal.
+MIN_COMPARISONS = 10
+
 
 def _cell(ws, addr):
     v = ws[addr].value
@@ -179,10 +184,20 @@ def _check(label, got, expected, tol, verbose, pass_list, fail_list):
 
 
 def _run_deal(deal_name, verbose=False):
+    """-> "PASS" | "FAIL" | "UNVERIFIED" | "MISSING".
+
+    Sweep 2026-10-05: this returned a bool, and `_check` silently skips any
+    expected value that is None. A workbook whose cached formula values are
+    absent (openpyxl drops them on save, so a run that never reached
+    LibreOffice leaves every formula cell empty) therefore produced zero
+    comparisons, printed "0 passed, 0 failed / ALL PASS", and returned True -
+    the parity harness certified the engine against nothing. mlk-2119 is that
+    workbook today. Zero comparisons is now UNVERIFIED, never PASS.
+    """
     wb_path = INTAKE / deal_name / f"{deal_name}_acq.xlsx"
     if not wb_path.exists():
         print(f"  ERROR: {wb_path} not found")
-        return False
+        return "MISSING"
 
     print(f"\n{'='*60}")
     print(f"  DEAL: {deal_name}")
@@ -191,13 +206,23 @@ def _run_deal(deal_name, verbose=False):
     inputs = _load_inputs(wb_path)
     expected = _load_expected(wb_path)
 
+    n_expected = sum(1 for v in expected.values() if v is not None)
+    if n_expected < MIN_COMPARISONS:
+        print(f"  UNVERIFIED: only {n_expected} of {len(expected)} expected values are "
+              f"present (need >= {MIN_COMPARISONS}).")
+        print(f"  The workbook's formula cells are empty, so there is nothing to compare")
+        print(f"  pymodel against. This is NOT a pass. Recalculate it:")
+        print(f"      python3 tools/intake.py --deal {deal_name} --recalc")
+        print(f"  (requires LibreOffice with the Calc filter; see tools/recalc.py)")
+        return "UNVERIFIED"
+
     try:
         r = pymodel.run(inputs)
     except Exception as e:
         print(f"  FATAL: pymodel.run() raised: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return "FAIL"
 
     passes = []
     fails = []
@@ -259,17 +284,26 @@ def _run_deal(deal_name, verbose=False):
         for f in fails:
             print(f"    {f}")
 
-    # Print key numbers regardless
-    print(f"\n  Key numbers ({deal_name}):")
-    print(f"    Y1 NOI:      ${r['noi'][1]:>12,.2f}    expected ${expected['noi_yr1']:>12,.2f}")
-    print(f"    Loan:        ${r['loan_amount']:>12,.2f}    expected ${expected['loan_amount']:>12,.2f}")
-    print(f"    Equity:      ${r['total_equity']:>12,.2f}    expected ${expected['total_equity']:>12,.2f}")
-    levered_exp = expected['levered_irr']
-    levered_got = r['levered_irr']
-    print(f"    Levered IRR: {(levered_got or 0)*100:>12.4f}%   expected {(levered_exp or 0)*100:>12.4f}%")
-    print(f"    Eq Multiple: {r['equity_multiple']:>12.4f}x    expected {(expected['equity_multiple'] or 0):>12.4f}x")
+    # Print key numbers regardless. Every expected value here can be None on a
+    # workbook that was only partially recalculated, so none of them may be fed
+    # to a format spec unguarded (that raised TypeError before 2026-10-05).
+    def _d(v):
+        return "        n/a" if v is None else f"{v:>12,.2f}"
 
-    return n_fail == 0
+    def _p(v):
+        return "        n/a" if v is None else f"{v*100:>12.4f}"
+
+    def _x(v):
+        return "        n/a" if v is None else f"{v:>12.4f}"
+
+    print(f"\n  Key numbers ({deal_name}):")
+    print(f"    Y1 NOI:      ${_d(r['noi'][1])}    expected ${_d(expected['noi_yr1'])}")
+    print(f"    Loan:        ${_d(r['loan_amount'])}    expected ${_d(expected['loan_amount'])}")
+    print(f"    Equity:      ${_d(r['total_equity'])}    expected ${_d(expected['total_equity'])}")
+    print(f"    Levered IRR: {_p(r['levered_irr'])}%   expected {_p(expected['levered_irr'])}%")
+    print(f"    Eq Multiple: {_x(r['equity_multiple'])}x    expected {_x(expected['equity_multiple'])}x")
+
+    return "PASS" if n_fail == 0 else "FAIL"
 
 
 def main():
@@ -277,34 +311,52 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true", help="print all individual checks")
     args = ap.parse_args()
 
+    # Every deal that has an acquisition workbook. Until 2026-10-05 this list
+    # held only the first four, so three live/board-ranked deals - cannon-rd,
+    # weber-city-mhp and treme-gov-nicholls - were never parity-checked at all,
+    # and mlk-2119's unrecalculated workbook was never surfaced.
     deals = [
         "baker-trails",
         "eden-church-mhp",
         "covington-2nd",
         "hwy42-mhp",
+        "cannon-rd",
+        "weber-city-mhp",
+        "treme-gov-nicholls",
+        "mlk-2119",
     ]
 
     results = []
     for deal in deals:
-        ok = _run_deal(deal, verbose=args.verbose)
-        results.append((deal, ok))
+        results.append((deal, _run_deal(deal, verbose=args.verbose)))
 
     print(f"\n{'='*60}")
     print("SUMMARY")
     print(f"{'='*60}")
-    all_pass = True
-    for deal, ok in results:
-        status = "PASS" if ok else "FAIL"
+    for deal, status in results:
         print(f"  {deal:<30} {status}")
-        if not ok:
-            all_pass = False
 
-    if all_pass:
-        print("\n  ALL DEALS VERIFIED - pymodel matches workbook outputs")
-        sys.exit(0)
-    else:
-        print("\n  VERIFICATION FAILED - investigate discrepancies above")
+    n_pass = sum(1 for _, s in results if s == "PASS")
+    bad = [(d, s) for d, s in results if s in ("FAIL", "MISSING")]
+    unver = [d for d, s in results if s == "UNVERIFIED"]
+
+    print(f"\n  {n_pass} of {len(results)} deals verified against their workbooks.")
+
+    if bad:
+        print("  VERIFICATION FAILED - investigate discrepancies above:")
+        for d, s in bad:
+            print(f"    {d}: {s}")
         sys.exit(1)
+
+    if unver:
+        # Not a pymodel failure - there is nothing to compare against - but the
+        # suite must never report these as verified.
+        print(f"  {len(unver)} UNVERIFIABLE (workbook not recalculated): {', '.join(unver)}")
+        print("  pymodel matches every workbook it could be compared against.")
+        sys.exit(0)
+
+    print("\n  ALL DEALS VERIFIED - pymodel matches workbook outputs")
+    sys.exit(0)
 
 
 if __name__ == "__main__":

@@ -494,7 +494,31 @@ for i,(lab,f) in enumerate(checks, start=2):
 ck.column_dimensions['A'].width = 60; ck.column_dimensions['B'].width = 10
 
 import os
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..',
-                   'Multifamily_Acquisition_Model.xlsx')
-wb.save(os.path.normpath(OUT))
-print('saved', os.path.normpath(OUT))
+import sys
+
+# Sweep 2026-09-28 (W7) / 2026-10-05: README.md claimed these scripts write to
+# /home/claude/models/ and told you to change the save path -- but the line
+# below already pointed at the repo-root master, so a run anyone believed was
+# harmless silently overwrote it. openpyxl writes formula STRINGS with no
+# cached values, and recalculating needs LibreOffice Calc, which this container
+# does not have, so the overwrite leaves every formula cell reading empty and
+# is not recoverable here. Overwriting an existing master is now opt-in.
+OUT = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..',
+    'Multifamily_Acquisition_Model.xlsx'))
+
+if '--out' in sys.argv:
+    OUT = os.path.abspath(sys.argv[sys.argv.index('--out') + 1])
+
+if os.path.exists(OUT) and '--force' not in sys.argv:
+    sys.exit(
+        f"REFUSING to overwrite an existing model: {OUT}\n"
+        "openpyxl saves formulas with no cached values, so this would blank every\n"
+        "computed cell until the file is recalculated with LibreOffice Calc.\n"
+        "  write elsewhere:   python3 build_acq.py --out /path/to/new.xlsx\n"
+        "  overwrite anyway:  python3 build_acq.py --force   (then recalc immediately)\n"
+        "Recalc: soffice --headless --convert-to xlsx --outdir . <file>")
+
+wb.save(OUT)
+print('saved', OUT)
+print('REMINDER: formulas have no cached values until this file is recalculated.')

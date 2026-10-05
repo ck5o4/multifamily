@@ -12,6 +12,30 @@ Numbers below come from the live board, regenerated after the 2026-08-24 weekly
 sweep fixed a solver bug that had been under-pricing every rung. **Any figure
 you find in an older note or memory predates that fix — do not trust it.**
 
+> **STALE AS OF 2026-10-05 — the deal numbers in this section are frozen at
+> 2026-08-24 and several no longer reproduce.** Four later sweeps
+> (`docs/sweeps/`) moved them. Measured fresh on 2026-10-05:
+>
+> - The **Baker "46% / 34%"** beats-index figures below are wrong by ~half.
+>   Live, with vintage active (year_built 1984), 12 seeds at n=4,000:
+>   **22.48% at $528,000** (21.62–23.52%) and **32.84% at $423,000**
+>   (31.78–34.07%). The PASS verdict is unaffected — both are far below 50% —
+>   but do not quote 46%.
+> - Baker's **$528,000 does still clear 13%**: the deterministic levered IRR
+>   there is **13.0123%** and `solve_price` certifies $528,000 as exactly the
+>   13% rung. (The 2026-09-28 sweep report states 12.56% and concludes the rung
+>   no longer clears; that figure does not reproduce on any basis — see the
+>   corrections section of `docs/sweeps/sweep-2026-10-05.md`.)
+> - **Eden's ladder** below is computed on the seller's carried insurance
+>   ($1,060/unit), mgmt 7% and marketing $0. On Eden's own stated gate
+>   ($1,600/unit, mgmt 8%) the 13% rung is **$1,455,000**, and the house rule
+>   **fails** at the recommended price. Which insurance basis Eden is
+>   underwritten on is **Anthony's call** and is deliberately unresolved.
+>
+> For live numbers run `python3 tools/board.py` or the engine directly, and read
+> the newest file in `docs/sweeps/` before quoting anything in this section to a
+> broker, lender or LP.
+
 ### Eden Church MHP — 18 pads, Denham Springs · PRIORITY 1, still live
 Ask $1,699,000.
 
@@ -70,8 +94,14 @@ AmTrust, or any Louisiana-licensed specialty E&S market.
   never installed, which is why reads worked and writes 403'd for two weeks).
 - **Cloud containers cannot reach FRED or the comp sites** (egress proxy 403), so
   `rates.py` and `marketwatch.py` must be run locally. Both are clean locally.
-- **Board artifact:** https://claude.ai/code/artifact/2b362f80-0ceb-4aaf-8d5b-41f212b377d0
-  The older `7ff847d5` URL is dead. `tools/board.py` points at the live one.
+- **Board artifact:** https://claude.ai/code/artifact/7ff847d5-56e2-425a-be47-da22618fe1b3
+  (Corrected 2026-10-05. This file previously named `2b362f80-...` as the live
+  board and called `7ff847d5` dead. Both halves were wrong: `tools/board.py:24-28`
+  records that the 2026-08-17 "404" note was mistaken and that the `2b362f80`
+  replacement **was never actually published**, and `portfolio/todos.json` carries
+  byte-level evidence of republishes to `7ff847d5` as recently as 2026-10-03
+  — version `1791032756-af05`, footer "commit de039c6". `board.py`'s
+  `ARTIFACT_URL` is and was `7ff847d5`, not `2b362f80`.)
 - Rates as of 2026-08-19: WSJ Prime 6.75%, 10yr 4.71%, SOFR 3.65%. No drift.
 
 ## Two things to verify on arrival

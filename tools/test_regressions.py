@@ -1120,6 +1120,9 @@ def main():
     test_icmemo_prefers_the_seller_document_over_an_estimate()
     test_intake_gates_refuse_a_misleading_write()
     test_board_says_the_residual_levee_risk_out_loud()
+    print("REGRESSION TESTS (2026-10-05 sweep)")
+    test_parity_harness_cannot_pass_on_zero_comparisons()
+    test_generators_refuse_to_overwrite_a_master()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)
@@ -1514,6 +1517,119 @@ def test_icmemo_prefers_the_seller_document_over_an_estimate():
           f"chose {path.name if path else None}")
     check("icmemo: the rejected candidate is still named",
           any("ESTIMATED" in n.upper() for n, _ in alternates), str(alternates))
+
+# ===========================================================================
+# 2026-10-05 sweep
+# ===========================================================================
+
+def test_parity_harness_cannot_pass_on_zero_comparisons():
+    """test_pymodel._run_deal certified the engine against nothing.
+
+    _check() silently skips any expected value that is None. A workbook whose
+    cached formula values are absent yields 22 of 22 None, so _run_deal made
+    zero comparisons, printed "0 passed, 0 failed / ALL PASS" and returned
+    True -- then raised TypeError formatting None in its key-numbers block.
+    mlk-2119 is that workbook: 22,822 bytes against 32,065-32,571 for the
+    seven recalculated ones.
+    """
+    import io
+    import contextlib
+    import pathlib
+    import test_pymodel as tp
+
+    root = pathlib.Path(tp.__file__).resolve().parent.parent
+    deal = "mlk-2119"
+    wb = root / "deal-intake" / deal / f"{deal}_acq.xlsx"
+    if not wb.exists():
+        check(f"parity: {deal} workbook present", True, "skipped - not in tree")
+        return
+
+    expected = tp._load_expected(wb)
+    n_present = sum(1 for v in expected.values() if v is not None)
+    check("parity: the fixture really is an uncalculated workbook",
+          n_present == 0, f"{n_present} of {len(expected)} values present")
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        status = tp._run_deal(deal)
+    out = buf.getvalue()
+
+    # The bug, precisely: zero comparisons must not read as a pass.
+    check("parity: zero comparisons is UNVERIFIED, not PASS",
+          status == "UNVERIFIED", f"status={status!r}")
+    check("parity: the harness no longer claims ALL PASS on that deal",
+          "ALL PASS" not in out)
+    check("parity: it says why it could not verify",
+          "UNVERIFIED" in out and "not recalculated" in out.lower()
+          or "formula cells are empty" in out.lower())
+
+    # It must not crash on the None-formatting path either.
+    check("parity: _run_deal returns rather than raising TypeError",
+          status in ("PASS", "FAIL", "UNVERIFIED", "MISSING"))
+
+    # And a real workbook must still pass, on a real comparison count.
+    good = "treme-gov-nicholls"
+    if (root / "deal-intake" / good / f"{good}_acq.xlsx").exists():
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            status2 = tp._run_deal(good)
+        check(f"parity: {good} still PASSes", status2 == "PASS", f"status={status2!r}")
+
+    # Coverage: every deal with a workbook is in the harness's list. Three
+    # live/board-ranked deals were absent until 2026-10-05.
+    src = _code_only(pathlib.Path(tp.__file__))
+    on_disk = sorted(p.parent.name for p in (root / "deal-intake").glob("*/*_acq.xlsx"))
+    missing = [d for d in on_disk if f'"{d}"' not in src]
+    check("parity: every deal with a workbook is covered by the harness",
+          not missing, f"uncovered: {missing}")
+
+
+def test_generators_refuse_to_overwrite_a_master():
+    """Running a generator silently overwrote a master calculator (W7).
+
+    generators/README.md said the scripts write to /home/claude/models/ and to
+    "change the save path", but build_acq.py:497 and build_dev.py:475 already
+    pointed at the repo-root masters. openpyxl writes formula STRINGS with no
+    cached values and recalc needs LibreOffice Calc, which this container lacks,
+    so the overwrite blanks every computed cell and is unrecoverable here.
+    """
+    import hashlib
+    import pathlib
+    import subprocess
+
+    gen = pathlib.Path(__file__).resolve().parent.parent / "generators"
+    root = gen.parent
+    pairs = [("build_acq.py", "Multifamily_Acquisition_Model.xlsx"),
+             ("build_dev.py", "Multifamily_Development_Model.xlsx")]
+
+    for script, master in pairs:
+        spath, mpath = gen / script, root / master
+        if not spath.exists() or not mpath.exists():
+            check(f"generators: {script} and {master} present", True, "skipped")
+            continue
+
+        before = hashlib.md5(mpath.read_bytes()).hexdigest()
+        proc = subprocess.run(["python3", str(spath)], cwd=str(gen),
+                              capture_output=True, text=True, timeout=300)
+        after = hashlib.md5(mpath.read_bytes()).hexdigest()
+
+        check(f"generators: {script} leaves {master} byte-identical",
+              before == after, "THE MASTER WAS OVERWRITTEN")
+        check(f"generators: {script} exits non-zero rather than overwriting",
+              proc.returncode != 0, f"rc={proc.returncode}")
+        check(f"generators: {script} says why it refused",
+              "REFUS" in (proc.stdout + proc.stderr).upper(),
+              (proc.stdout + proc.stderr)[:200])
+
+    # The documented repair path must still work, or the guard just blocks work.
+    src = _code_only(gen / "build_acq.py")
+    check("generators: an explicit --force escape hatch exists", "--force" in src)
+    check("generators: an --out redirect exists", "--out" in src)
+
+    readme = (gen / "README.md").read_text()
+    check("generators: README no longer claims the scripts write to /home/claude/models/",
+          "/home/claude/models/" not in readme, readme[:200])
+
 
 if __name__ == "__main__":
     main()
