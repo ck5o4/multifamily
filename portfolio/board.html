@@ -239,7 +239,7 @@
   <header>
     <div class="brand">Ridgeback Peak Properties</div>
     <h1>Deal Board</h1>
-    <div class="meta">Auto-generated 2026-10-05 · every number recomputed from the live models · private</div>
+    <div class="meta">Auto-generated 2026-10-06 · every number recomputed from the live models · private</div>
   </header>
   <section class="verdict">
     <h2>To do</h2>
@@ -582,7 +582,31 @@ MARKET REALITY, SAID PLAINLY. Duson is a small town west of Lafayette, roughly 1
 
 ACTION: one email or call to the listing agent for (a) asking price, (b) whether the 9 units are one building or scattered addresses, (c) current rents and lease terms per unit, (d) occupancy and condition/vintage, (e) whether any units are voucher-tenanted - flag the Section 8 economics explicitly either way. Broker is not named in the alert body.
 
-No flood check required at screen stage the way Orleans demands one, but run tools/flood.py before any offer regardless. No deal-intake folder created - nothing to ingest yet.</span></li></ul>
+No flood check required at screen stage the way Orleans demands one, but run tools/flood.py before any offer regardless. No deal-intake folder created - nothing to ingest yet.</span></li>
+<li class=""><b>[YOU]</b> SCREEN 532 N Rampart St, New Orleans LA 70112 (French Quarter boundary / Iberville-Treme edge, Orleans) - 7,992 SF, $500,000 ask ($62.56/SF). UNIT COUNT UNKNOWN. Pull unit count, rent roll, occupancy, zoning and condition before anything else. The price is the warning, not the opportunity. <span class="who">— Source: LoopNet saved-search alert 2026-10-06 10:10 UTC (&#x27;Multifamily | For Sale 7,992 SF | $500,000&#x27;). New to the pipeline - no prior mention in mail or the repo (checked 2026-10-06). Unlike the 10-05 Crexi pair (Tara Lane, Cameron St) this one HAS a price and NO unit count, so the screen inverts: price is fixed and the question is what income the building must produce to clear 13%.
+
+RENT REQUIRED AT THE $500,000 ASK to clear the 13% pursue floor (pymodel, Orleans basis: 131.99 mills via latax, insurance $3,000/unit coastal wind, 8% third-party management, payroll $0 under 20 doors, DSCR floor 1.30, exit cap = going-in + 50bps, taxes reassessed at the trial price):
+   4u (1,998 SF/u): 13% needs $1,754/u/mo | 16% needs $1,849
+   6u (1,332 SF/u): 13% needs $1,343/u/mo | 16% needs $1,406
+   8u (  999 SF/u): 13% needs $1,138/u/mo | 16% needs $1,184
+  10u (  799 SF/u): 13% needs $1,014/u/mo | 16% needs $1,051
+  12u (  666 SF/u): 13% needs $  932/u/mo | 16% needs $  962
+Equity at the ask is $138,750 at every unit count (equity is a function of price, not door count) and DSCR at the 13% rung runs 1.47-1.58. So CAPITAL DOES NOT BIND HERE - $138,750 against ~$300K available leaves the $30-40K reserve intact and room for a second deal. That is rare on the NOLA board and is the single best thing about this listing.
+
+AT 8 UNITS OR MORE THE REQUIRED RENT IS BELOW MARKET, WHICH IS THE PROBLEM. The nearest repo-recorded comps: 1429 Governor Nicholls (Treme, 8u) asked $849,000 = $106,125/unit, and 1700 S Rampart (7u) TRADED 2026-04-13 at $760,000 = $108,571/unit (calibration.json, buyer TRES LUMINA LLC). This asks $62,500/unit at 8 doors, $50,000/unit at 10 - roughly 40-55% under both, in a LOCATION THAT IS BETTER than Gov Nicholls, not worse: the 500 block of N Rampart is the French Quarter boundary itself. The Treme screen already noted that Quarter-adjacent comps 0.3-0.4mi away run $2,050-2,350 while on-block Treme runs $1,290-1,500. Against the $1,138 (8u) threshold, market rent is not the binding question.
+
+So the discount is paying for something the alert does not disclose. Do not treat the ladder above as a verdict - treat it as the bar the building has to clear. The candidate explanations, in order of likelihood:
+  1. VACANT SHELL / GUT REHAB. $62.56/SF is land-and-walls pricing in that location, not income pricing. If it is a shell, this is a development deal, and CLAUDE.md is explicit that ground-up/heavy construction is NO for now - no cost edge, equity too small, no track record.
+  2. VIEUX CARRE / HDLC JURISDICTION. The even side of the 500 block of N Rampart sits on the Quarter line. VCC or HDLC review makes renovation materially slower and more expensive than the $250/unit/yr capex reserve in the model contemplates, and that cost is not in any number above.
+  3. STR-DEPENDENT INCOME. 70112 is the heart of Orleans STR enforcement. CLAUDE.md: NEVER underwrite short-term-rental income as lease income. If the pro forma is built on nightly rates, the real number is the long-term lease rent, which may be far below what the ladder needs.
+  4. COMMERCIAL / MIXED-USE MIS-TAG. N Rampart is a commercial corridor. If part of the 7,992 SF is retail or office, the residential assessment ratio used above (10%) is wrong and taxes rise (latax takes a commercial_share argument for exactly this).
+  5. Fire, storm or structural damage, or a ground lease / condo regime.
+
+FLOOD: UNVERIFIED. flood.py attempted this run and failed again - &#x27;Flood service unreachable: curl exit 56&#x27; - the cloud network policy still blocks the geocoder (see the network-policy todo). 70112 is Zone X by LEVEE PROTECTION ONLY, which per CLAUDE.md must be said out loud as residual risk rather than called clean. Check the zone manually.
+
+ASK THE LISTING AGENT, IN THIS ORDER: (1) how many units and is it currently rented or vacant; (2) rent roll with lease start and end dates, and are any of those leases short-term/nightly; (3) T-12; (4) zoning and whether the building is under VCC or HDLC review; (5) condition - roof, systems, any open permits or violations; (6) why the price. Question 1 and question 6 decide whether this is worth a second hour.
+
+VERDICT: SCREEN-WORTHY ON THE NUMBERS, SKEPTICAL ON THE REASON. Capital fits, the required rent is beneath market at 8+ doors, and the ask is 40-55% under two recorded per-unit comps. A discount that large in that location is almost never a mispricing - it is a disclosure that has not been made yet. One phone call resolves it.</span></li></ul>
     <div class="rulebar">
       <span>Your capital <b>$300K</b></span>
       <span>Keep in reserve <b>$30–40K</b></span>
@@ -671,7 +695,7 @@ No flood check required at screen stage the way Orleans demands one, but run too
     <div class="row-deal"><span class="name">Cannon Rd <span class="pill dead">Dead</span></span><span class="why">Needs 12× your capital. Not a maybe.</span></div><div class="row-deal"><span class="name">Covington 2Nd <span class="pill dead">Dead</span></span><span class="why">Ask $1.25M. <b>Works at $907K (13%) / $841K (16%) / $733K (22%).</b> The old &ldquo;needs more cash than you have&rdquo; line was WRONG — that is true at the ask, not in the revive band, where equity is <b>$203–252K</b> of your $300K. Stays dead at the ask; <b>revives on a cut toward ~$900K</b>.</span></div><div class="row-deal"><span class="name">Weber City Mhp <span class="pill dead">Dead</span></span><span class="why">Flood zone kills it at any realistic price.</span></div><div class="row-deal"><span class="name">Hwy42 Mhp <span class="pill dead">Dead</span></span><span class="why">Ask $3.0M. <b>Only at ~$2.4–2.5M with ~$400K carry</b> — and it sits in a real flood zone.</span></div><div class="row-deal"><span class="name">Central City 2Nd <span class="pill dead">Dead</span></span><span class="why">Ask $1.16M. <b>Only near $700K.</b></span></div><div class="row-deal"><span class="name">Mlk 2119 <span class="pill dead">Dead</span></span><span class="why">Ask $490K for <b>2 doors</b> ($245K/unit). Levered IRR <b>-9.8%</b>, 0.62x multiple — it loses money, it does not merely miss the band. DSCR caps the loan at 47% LTV, so equity at ask is <b>$273K = 91% of your capital</b> for two units. <b>Only near $270K.</b></span></div>
   </section>
   <footer>
-    Generated by tools/board.py at commit <code>029cf88</code> on 2026-10-05 ·
+    Generated by tools/board.py at commit <code>625507c</code> on 2026-10-06 ·
     all numbers computed clean ·
     republished to the standing link by the daily scan routine
   </footer>
