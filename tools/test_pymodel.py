@@ -273,16 +273,42 @@ def _run_deal(deal_name, verbose=False):
         except (TypeError, ValueError):
             pass  # GP IRR can be blank if GP gets nothing
 
+    # A workbook can carry plenty of cached values and still have every return
+    # metric blank: Annual CF!C55 and Waterfall!C30/C33 are IFERROR(IRR(...),"")
+    # and go empty whenever the cash-flow series has no sign change, which is
+    # exactly what a deeply underwater deal produces. The MIN_COMPARISONS guard
+    # above does not catch it -- the balance-sheet lines alone clear 10 -- so
+    # without this the harness prints PASS having verified NOI, loan, equity and
+    # DSCR but not one of the four numbers the system exists to produce.
+    # Reproduced 2026-10-12 on a forced-negative-cash-flow workbook: 19 of 22
+    # values present, levered_irr / lp_irr / gp_irr all blank and silently
+    # skipped. Same class as the 2026-10-05 F1 finding, narrower scope.
+    RETURN_LABELS = ("Levered IRR", "Unlevered IRR", "Equity multiple")
+    returns_checked = [lbl for lbl in RETURN_LABELS
+                       if lbl in passes or any(lbl in f for f in fails)]
+
     # Summary
     n_pass = len(passes)
     n_fail = len(fails)
     print(f"\n  Result: {n_pass} passed, {n_fail} failed")
-    if n_fail == 0:
-        print(f"  ALL PASS for {deal_name}")
-    else:
+    if n_fail:
         print(f"  FAILURES:")
         for f in fails:
             print(f"    {f}")
+    elif not returns_checked:
+        # A real mismatch outranks this, so it is only reached on a clean run.
+        print(f"  UNVERIFIED: {n_pass} comparisons ran and none of them was a "
+              f"return metric.")
+        print(f"  {', '.join(RETURN_LABELS)} are all blank in the workbook "
+              f"(IRR did not")
+        print(f"  converge, which an all-negative cash-flow series will do), so "
+              f"the engine's")
+        print(f"  returns are unverified on this deal. This is NOT a pass. "
+              f"Recalculate it:")
+        print(f"      python3 tools/intake.py --deal {deal_name} --recalc")
+        return "UNVERIFIED"
+    else:
+        print(f"  ALL PASS for {deal_name}")
 
     # Print key numbers regardless. Every expected value here can be None on a
     # workbook that was only partially recalculated, so none of them may be fed

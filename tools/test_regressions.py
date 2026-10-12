@@ -1153,6 +1153,19 @@ def main():
     test_bankpackage_sees_the_documents_that_are_on_disk()
     test_wind_basis_agrees_with_the_parish_table()
     test_generators_refuse_to_overwrite_a_master()
+    print("REGRESSION TESTS (2026-10-12 sweep)")
+    test_every_covered_deal_is_actually_verified_not_unverified()
+    test_board_mlk_copy_ties_to_the_engine_on_the_carried_basis()
+    test_no_debt_service_after_the_loan_amortizes_away()
+    test_parity_cannot_pass_with_every_return_metric_blank()
+    test_geography_resolves_under_every_input_form()
+    test_four_jefferson_towns_are_back_on_the_wind_basis()
+    test_a_parish_we_do_not_carry_never_becomes_one_we_do()
+    test_town_before_street_resolves_to_the_town()
+    test_every_geography_consumer_uses_the_same_resolver()
+    test_intake_never_reads_its_own_workbook_as_a_source()
+    test_writer_refuses_an_excel_error_token()
+    test_an_orleans_neighbourhood_is_not_read_as_a_baton_rouge_town()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)
@@ -1413,13 +1426,39 @@ def test_vintage_hazards_are_shared_with_the_engine():
 
 
 def test_savings_are_capital_not_portfolio_return():
-    """annual_savings_contribution was credited to port_cf as an inflow."""
+    """annual_savings_contribution was credited to port_cf as an inflow.
+
+    Sweep 2026-10-12: this test asserted NOTHING. The fixture set
+    `annual_savings`, while `portfolio_sim.simulate` reads
+    `annual_savings_contribution` (portfolio_sim.py:140) and `spec["year"]`,
+    not `acq_year`. So `with_sav` and `without` were the identical
+    zero-savings simulation and both checks compared a number to itself
+    (portfolio_irr 0.2841410018 and total_profit $468,044.49 on both sides,
+    byte-identical portfolio_cf). Re-adding `+ savings` to `port_cf[yr]` would
+    have left it green - the same shape as the 10-05 F1/F2/F3 findings.
+
+    With the keys the code actually reads, the 09-28 fix does hold: savings
+    30k vs 0 gives IRR 28.4141% either way and profit $468,044 either way.
+    The fixture now also asserts it is exercising a real difference, so a
+    renamed key cannot hollow it out again.
+    """
     import portfolio_sim
-    scen = {"name": "t", "starting_equity": 300_000, "annual_savings": 30_000,
-            "deals": [{"deal": "eden-church-mhp", "acq_year": 0, "price": 1_094_000,
+    scen = {"name": "t", "starting_equity": 300_000,
+            "annual_savings_contribution": 30_000,
+            "deals": [{"deal": "eden-church-mhp", "year": 0, "price": 1_094_000,
                        "location": "denham springs"}]}
     with_sav = portfolio_sim.simulate(scen)
-    without = portfolio_sim.simulate(dict(scen, annual_savings=0))
+    without = portfolio_sim.simulate(dict(scen, annual_savings_contribution=0))
+
+    # Guard the fixture itself: the two runs must differ in the savings input,
+    # or the comparisons below are vacuous.
+    check("portfolio_sim: the fixture really varies the savings input",
+          (with_sav.get("annual_savings") or 0) != (without.get("annual_savings") or 0)
+          or with_sav.get("peak_deployed") != without.get("peak_deployed")
+          or with_sav.get("annual_table") != without.get("annual_table"),
+          f"both runs identical - simulate() ignored the key "
+          f"(with={with_sav.get('annual_savings')!r} without={without.get('annual_savings')!r})")
+
     check("portfolio_sim: savings do not inflate the portfolio IRR",
           abs((with_sav["portfolio_irr"] or 0) - (without["portfolio_irr"] or 0)) < 0.005,
           f"{with_sav['portfolio_irr']} vs {without['portfolio_irr']}")
@@ -1559,30 +1598,69 @@ def test_parity_harness_cannot_pass_on_zero_comparisons():
     cached formula values are absent yields 22 of 22 None, so _run_deal made
     zero comparisons, printed "0 passed, 0 failed / ALL PASS" and returned
     True -- then raised TypeError formatting None in its key-numbers block.
-    mlk-2119 is that workbook: 22,822 bytes against 32,065-32,571 for the
-    seven recalculated ones.
+
+    2026-10-12 sweep: this test pinned its fixture to the mlk-2119 workbook,
+    which was the one uncalculated workbook in the tree on 2026-10-05 (22,822
+    bytes against 32,065-32,571 for the seven recalculated ones). The
+    2026-10-06 daily scan (commit 61b2ddc) recalculated it to 32,275 bytes, so
+    21 of 22 cached values are now present, _run_deal correctly returns PASS,
+    and all four assertions inverted. That was a STALE FIXTURE, not a product
+    regression: the guard at test_pymodel.py:209 was intact the whole time.
+
+    The fixture is therefore SYNTHESIZED now, not picked off disk. openpyxl
+    drops cached formula values whenever it saves, which is the exact mechanism
+    that produced the original uncalculated workbook, so a load-and-save of any
+    recalculated workbook reproduces the bug's input condition on demand. No
+    daily scan, recalc or new deal can invalidate it again.
     """
     import io
     import contextlib
     import pathlib
+    import shutil
+    import tempfile
+    import openpyxl
     import test_pymodel as tp
 
     root = pathlib.Path(tp.__file__).resolve().parent.parent
-    deal = "mlk-2119"
-    wb = root / "deal-intake" / deal / f"{deal}_acq.xlsx"
-    if not wb.exists():
-        check(f"parity: {deal} workbook present", True, "skipped - not in tree")
+
+    # Donor: any workbook that really is recalculated. Asserting this first is
+    # what makes the synthesized stub meaningful rather than circular.
+    donor = None
+    for cand in sorted((root / "deal-intake").glob("*/*_acq.xlsx")):
+        if sum(1 for v in tp._load_expected(cand).values() if v is not None) >= tp.MIN_COMPARISONS:
+            donor = cand
+            break
+    check("parity: a recalculated donor workbook exists to synthesize from",
+          donor is not None, "no workbook in the tree has cached formula values")
+    if donor is None:
         return
 
-    expected = tp._load_expected(wb)
-    n_present = sum(1 for v in expected.values() if v is not None)
-    check("parity: the fixture really is an uncalculated workbook",
-          n_present == 0, f"{n_present} of {len(expected)} values present")
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="parity-stub-"))
+    try:
+        stub_deal = "synthetic-uncalculated"
+        stub_dir = tmp / stub_deal
+        stub_dir.mkdir()
+        stub = stub_dir / f"{stub_deal}_acq.xlsx"
+        shutil.copy(donor, stub)
+        # The mechanism: formulas survive, the cached results do not.
+        openpyxl.load_workbook(str(stub)).save(str(stub))
 
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        status = tp._run_deal(deal)
-    out = buf.getvalue()
+        expected = tp._load_expected(stub)
+        n_present = sum(1 for v in expected.values() if v is not None)
+        check("parity: the synthesized fixture really is uncalculated",
+              n_present == 0, f"{n_present} of {len(expected)} values present")
+
+        orig_intake = tp.INTAKE
+        tp.INTAKE = tmp
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                status = tp._run_deal(stub_deal)
+            out = buf.getvalue()
+        finally:
+            tp.INTAKE = orig_intake
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
     # The bug, precisely: zero comparisons must not read as a pass.
     check("parity: zero comparisons is UNVERIFIED, not PASS",
@@ -1590,8 +1668,8 @@ def test_parity_harness_cannot_pass_on_zero_comparisons():
     check("parity: the harness no longer claims ALL PASS on that deal",
           "ALL PASS" not in out)
     check("parity: it says why it could not verify",
-          "UNVERIFIED" in out and "not recalculated" in out.lower()
-          or "formula cells are empty" in out.lower())
+          "UNVERIFIED" in out and ("not recalculated" in out.lower()
+                                   or "formula cells are empty" in out.lower()))
 
     # It must not crash on the None-formatting path either.
     check("parity: _run_deal returns rather than raising TypeError",
@@ -1612,6 +1690,38 @@ def test_parity_harness_cannot_pass_on_zero_comparisons():
     missing = [d for d in on_disk if f'"{d}"' not in src]
     check("parity: every deal with a workbook is covered by the harness",
           not missing, f"uncovered: {missing}")
+
+
+# ===========================================================================
+# 2026-10-12 sweep
+# ===========================================================================
+
+def test_every_covered_deal_is_actually_verified_not_unverified():
+    """The 10-05 guard turns an uncalculated workbook into UNVERIFIED rather
+    than a false PASS -- but nothing asserted that the tree currently has none.
+
+    A workbook can lose its cached values at any time (any openpyxl save that
+    is not followed by a LibreOffice recalc does it), and the harness's own
+    summary reports UNVERIFIED without failing. So the parity suite can go
+    quiet on a deal and still exit 0. mlk-2119 sat in exactly that state from
+    the 10-05 sweep until the 10-06 daily scan recalculated it.
+
+    This asserts the live condition: every deal workbook in the tree carries
+    enough cached values to be compared against. It is the test that would
+    have caught mlk-2119's stub state on 10-05 without pinning anything to
+    mlk-2119.
+    """
+    import pathlib
+    import test_pymodel as tp
+
+    root = pathlib.Path(tp.__file__).resolve().parent.parent
+    stubs = []
+    for wb in sorted((root / "deal-intake").glob("*/*_acq.xlsx")):
+        n = sum(1 for v in tp._load_expected(wb).values() if v is not None)
+        if n < tp.MIN_COMPARISONS:
+            stubs.append(f"{wb.parent.name} ({n} values)")
+    check("parity: no deal workbook in the tree is an uncalculated stub",
+          not stubs, f"UNVERIFIABLE: {stubs} - run intake.py --recalc")
 
 
 def test_board_escapes_a_note_and_still_renders():
@@ -2011,6 +2121,528 @@ def test_generators_refuse_to_overwrite_a_master():
     readme = (gen / "README.md").read_text()
     check("generators: README no longer claims the scripts write to /home/claude/models/",
           "/home/claude/models/" not in readme, readme[:200])
+
+
+
+def test_board_mlk_copy_ties_to_the_engine_on_the_carried_basis():
+    """The 2026-10-05 sweep told Anthony the board's mlk-2119 copy was false.
+
+    Its deferred item reads: *"board.py:95 mlk-2119 'it loses money' is false --
+    live +1.33% IRR, 1.066x, not -9.8%/0.62x"*, and correction C-c calls
+    going-in + 50bps the "house rule exit" against the deal's carried 0.075.
+
+    Reproduced 2026-10-12: +1.3347% / 1.0658x is exactly what the engine
+    returns when exit_cap is replaced with going_in_cap + 50bps (0.05533). On
+    the basis the deal actually carries -- exit_cap 0.075, the value in
+    deals.json, in the workbook and in the parity-verified engine -- it is
+    -9.7946% / 0.6155x, which is what the board prints.
+
+    Both conventions are live in this repo, which is the real defect: pymodel
+    derives going-in + 50bps when exit_cap is unset (pymodel.py:952,
+    defaults.py:46) and uses the carried value when it is set. mlk-2119 carries
+    0.075 explicitly, so the board, the record and the engine all agree at
+    -9.79%. The 10-05 item substituted the derived default for that carried
+    value and called the published number false, without saying it had changed
+    basis -- an 11.13pp swing in IRR on one deal from an unlabelled convention
+    switch. The board copy ties to the deal's own basis; the item does not.
+
+    The verdict is DEAD on either basis (+1.33% misses the 13% floor by 11.67pp),
+    so no deal decision turns on this. What it protects is the published number.
+    """
+    import pathlib
+    import re
+
+    r = pymodel.run(pymodel._load_deal("mlk-2119"))
+    irr, em = r["levered_irr"], r["equity_multiple"]
+
+    check("mlk: the carried basis still loses money",
+          irr < 0, f"levered_irr={irr:.6f}")
+    check("mlk: levered IRR is -9.79%, not the +1.33% of the 10-05 correction",
+          abs(irr - (-0.097946)) < 0.0002, f"got {irr*100:.4f}%")
+    check("mlk: equity multiple is 0.6155x, not 1.066x",
+          abs(em - 0.6155) < 0.001, f"got {em:.4f}x")
+
+    # And the board's hand-typed copy must still agree with that engine run.
+    src = pathlib.Path(pymodel.__file__).resolve().parent / "board.py"
+    copy = src.read_text()
+    m = re.search(r'"mlk-2119":\s*\((.*?)\),\n', copy, re.S)
+    check("mlk: the board still carries a DEAD_WHY entry", m is not None)
+    if m:
+        text = m.group(1)
+        pct = re.search(r"<b>(-[\d.]+)%</b>", text)
+        mult = re.search(r"([\d.]+)x multiple", text)
+        check("mlk: the board's printed IRR matches the engine to 0.1pp",
+              pct is not None and abs(float(pct.group(1)) - irr * 100) < 0.1,
+              f"board={pct.group(1) if pct else None} engine={irr*100:.2f}")
+        check("mlk: the board's printed multiple matches the engine to 0.01x",
+              mult is not None and abs(float(mult.group(1)) - em) < 0.01,
+              f"board={mult.group(1) if mult else None} engine={em:.4f}")
+
+
+def test_no_debt_service_after_the_loan_amortizes_away():
+    """Guards the 2026-08-09 fix: post-payoff debt service when amort < hold.
+
+    CLAUDE.md pending item 5 asks whether the master workbooks share this bug.
+    Reproduced on a scratch copy 2026-10-12 (the master itself was not touched):
+    amortization 5 years, hold 8, loan $148,421, monthly payment $2,921.43.
+    The workbook's Annual CF!32 computes interest as `12*payment - (beg - end)`
+    whenever the interest-only gate is false, so once the balance reaches zero
+    in year 5 it keeps charging a full 12 payments against a zero balance:
+
+        yr   beg_bal   total_DS   end_bal
+         5    33,808     35,057         0
+         6         0     35,057         0
+         7         0     35,057         0
+         8         0     35,057         0
+
+    $105,171 of debt service on a repaid loan, levered IRR 5.7135% against
+    pymodel's 7.7465% on identical inputs -- 2.03pp -- and all twelve rows of
+    the workbook's own Checks tab still read OK. Flagged for a human session,
+    per the house rule against editing the masters' formulas.
+
+    The engine side is correct and this pins it there.
+    """
+    import test_pymodel as tp
+    import pathlib
+
+    master = pathlib.Path(pymodel.__file__).resolve().parent.parent / "Multifamily_Acquisition_Model.xlsx"
+    if not master.exists():
+        check("payoff: master workbook present to read inputs from", True, "skipped")
+        return
+
+    inputs = dict(tp._load_inputs(master))
+    inputs["amort_years"] = 5
+    inputs["hold_years"] = 8
+    r = pymodel.run(inputs)
+
+    check("payoff: the loan is fully repaid in the amortization year",
+          abs(r["end_bal"][5]) < 1.0, f"end_bal[5]={r['end_bal'][5]:,.2f}")
+    after = {y: r["total_ds"][y] for y in (6, 7, 8)}
+    check("payoff: no debt service is charged after the loan is repaid",
+          all(abs(v) < 1.0 for v in after.values()),
+          f"total_ds after payoff: {after}")
+    check("payoff: cash flow after debt service equals cash flow before it",
+          all(abs(r["cfads"][y] - r["cfbds"][y]) < 1.0 for y in (6, 7, 8)),
+          f"cfads/cfbds diverge: {[(y, round(r['cfads'][y]-r['cfbds'][y],2)) for y in (6,7,8)]}")
+
+
+def test_parity_cannot_pass_with_every_return_metric_blank():
+    """A narrower sibling of the 10-05 F1 finding, found and fixed 2026-10-12.
+
+    `Annual CF!C55` and `Waterfall!C30/C33` are `IFERROR(IRR(...),"")`, so they
+    go blank whenever the cash-flow series has no sign change -- which is what a
+    deeply underwater deal produces. `_check` skips a blank expected value, and
+    the MIN_COMPARISONS guard does not notice, because the balance-sheet lines
+    (NOI, EGR, loan, equity, DSCR, balances, capital) clear 10 on their own.
+
+    Reproduced on a forced-negative-cash-flow workbook (LTV 95%, min DSCR 0.50,
+    insurance $6,000/unit -> levered CF -13,822 / -14,001 / -14,193 / -14,399 /
+    -130,791): 19 of 22 expected values present, `levered_irr`, `lp_irr` and
+    `gp_irr` all blank and silently skipped. Nothing stopped `_run_deal` from
+    printing PASS having verified every number except the four the system exists
+    to produce.
+
+    `_run_deal` now requires at least one of Levered IRR / Unlevered IRR /
+    Equity multiple to have been compared, and reports UNVERIFIED otherwise. A
+    genuine mismatch still outranks it and reports FAIL.
+    """
+    import io
+    import contextlib
+    import test_pymodel as tp
+
+    deal = "treme-gov-nicholls"
+    if not (tp.INTAKE / deal / f"{deal}_acq.xlsx").exists():
+        check(f"returns: {deal} workbook present", True, "skipped - not in tree")
+        return
+
+    # Baseline: the deal passes, and it passes BECAUSE returns were compared.
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        baseline = tp._run_deal(deal)
+    check("returns: the unmodified deal still PASSes",
+          baseline == "PASS", f"status={baseline!r}")
+
+    # Now blank only the return metrics, leaving every other cached value real.
+    real_loader = tp._load_expected
+
+    def blank_returns(path):
+        d = dict(real_loader(path))
+        for k in ("levered_irr", "unlevered_irr", "equity_multiple",
+                  "lp_irr", "lp_em", "gp_irr"):
+            d[k] = ""
+        return d
+
+    tp._load_expected = blank_returns
+    try:
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            status = tp._run_deal(deal)
+        out = buf2.getvalue()
+    finally:
+        tp._load_expected = real_loader
+
+    check("returns: a run with no return comparison is UNVERIFIED, not PASS",
+          status == "UNVERIFIED", f"status={status!r}")
+    check("returns: it does not claim ALL PASS",
+          "ALL PASS" not in out)
+    check("returns: it says which metrics were missing",
+          "return metric" in out and "Levered IRR" in out)
+    check("returns: the balance-sheet comparisons still ran",
+          "passed" in out and "0 passed" not in out)
+
+
+def test_geography_resolves_under_every_input_form():
+    """REGRESSION FROM afcaa73 (the 10-05 F4/F5 fix), found 2026-10-12.
+
+    `_norm` strips "parish" only when TRAILING, but `infer_parish` bailed out on
+    the word appearing ANYWHERE, before any town matching. So "<town>, <Parish>
+    Parish" - the form a human types - resolved to nothing, and both the
+    insurance basis and the tax reassessment were lost. All 97 towns failed that
+    form; 25 are in a wind parish, and the pre-fix substring code got every one
+    of them right.
+
+    Dollars, 12-unit x $950, house DSCR 1.30, 13% rung:
+      "Chalmette"                      $3,000/u   $517,448   correct
+      "Chalmette, St. Bernard Parish"  $2,000/u   $640,229   $122,781 (23.7%) high
+      "Gretna, Jefferson Parish"       $2,000/u   $655,451   $125,701 (23.7%) high
+    treme-gov-nicholls is live and board-ranked and records its location as
+    "1429 Governor Nicholls St, Treme, Orleans Parish" - exactly that form.
+
+    The 10-05 test could not see any of this: it iterated CITY_TO_PARISH and
+    called wind_exposed(bare_town), comparing two things that read the same
+    table. This test crosses every town with every input form instead.
+    """
+    import latax
+    import defaults
+
+    forms = [
+        ("bare", lambda t, par: t),
+        ("state", lambda t, par: f"{t}, LA"),
+        ("state+zip", lambda t, par: f"{t}, LA 70000"),
+        ("town+parish", lambda t, par: f"{t}, {par.title()} Parish"),
+        ("street+town", lambda t, par: f"123 Main St, {t}, LA"),
+    ]
+    wind_parishes = {"orleans", "jefferson", "st. bernard", "plaquemines"}
+
+    for label, mk in forms:
+        wrong_parish, wrong_wind, no_tax = [], [], []
+        for town, par in sorted(latax.CITY_TO_PARISH.items()):
+            loc = mk(town, par)
+            got, _ = latax.infer_parish(loc)
+            if got != par:
+                wrong_parish.append((loc, got))
+            we = defaults.wind_exposed(loc)
+            we = we[0] if isinstance(we, tuple) else we
+            if bool(we) != (par in wind_parishes):
+                wrong_wind.append((loc, we))
+            tax, _why = latax.estimate_tax(500_000, loc)
+            if tax is None:
+                no_tax.append(loc)
+        check(f"geo[{label}]: every town resolves to its parish",
+              not wrong_parish, f"{len(wrong_parish)} wrong, e.g. {wrong_parish[:3]}")
+        check(f"geo[{label}]: the wind basis agrees with the parish table",
+              not wrong_wind, f"{len(wrong_wind)} wrong, e.g. {wrong_wind[:3]}")
+        check(f"geo[{label}]: taxes reassess rather than silently freezing",
+              not no_tax, f"{len(no_tax)} returned None, e.g. {no_tax[:3]}")
+
+
+def test_four_jefferson_towns_are_back_on_the_wind_basis():
+    """estelle, timberlane, waggaman and bridge city were in the pre-afcaa73
+    defaults._WIND_TOWNS tuple and were dropped when F4 moved geography onto
+    CITY_TO_PARISH, so each fell silently to the $2,000 inland basis: a 13%
+    clearing price of $655,451 against a correct $529,750 on a 12-unit x $950
+    deal, $125,701 (23.7%) overstated, each. All four are Jefferson Parish
+    census places with multifamily stock.
+    """
+    import latax
+    import defaults
+
+    for town in ("estelle", "timberlane", "waggaman", "bridge city"):
+        par, _ = latax.infer_parish(town)
+        check(f"jeff4: {town!r} resolves to Jefferson Parish",
+              par == "jefferson", f"got {par!r}")
+        ins = defaults.derive("insurance", 8, town)
+        ins = ins[0] if isinstance(ins, tuple) else ins
+        check(f"jeff4: {town!r} takes the $3,000 wind basis",
+              ins == 3000, f"got {ins!r}")
+
+
+def test_a_parish_we_do_not_carry_never_becomes_one_we_do():
+    """F4 named Jefferson Davis as its counterexample, and the 10-05 guard held
+    only for the spelling that includes the word "parish". "Jennings, Jefferson
+    Davis, LA" has no such word, so it matched the town "jefferson" and took
+    Jefferson Parish's 118.40 millage and $3,000 wind basis for an inland
+    rice-country deal. A non-Louisiana state did the same: "Jefferson, TX".
+    """
+    import latax
+
+    for loc in ("Jefferson Davis Parish", "Jefferson Davis",
+                "Jennings, Jefferson Davis, LA", "Jefferson, TX",
+                "New Orleans, MS"):
+        par, why = latax.infer_parish(loc)
+        check(f"confusable: {loc!r} does not resolve",
+              par is None, f"resolved to {par!r} ({why})")
+        tax, _ = latax.estimate_tax(500_000, loc)
+        check(f"confusable: {loc!r} yields no tax estimate",
+              tax is None, f"got {tax!r}")
+
+    # And the real ones still work.
+    for loc, want in (("Jefferson Parish", "jefferson"),
+                      ("Jefferson, LA", "jefferson"),
+                      ("Metairie", "jefferson")):
+        got, _ = latax.infer_parish(loc)
+        check(f"confusable: {loc!r} still resolves to {want}",
+              got == want, f"got {got!r}")
+
+
+def test_town_before_street_resolves_to_the_town():
+    """The tie-break key was (end_index, n_words), so a 1-word town LATER in the
+    string beat the real city earlier in it, and the note asserted it as fact:
+    "Baton Rouge - 5555 Jefferson Hwy" returned "Jefferson Parish is
+    coastal-wind" for a Baton Rouge property, taking $3,000/unit. EBR 12-unit x
+    $950: 13% rung $535,092 as resolved against $662,167 correct, $127,075
+    (19.2%) understated - the same figure defaults.py:132 claims F4 removed.
+    Preferring the longest match fixes the reversed order and leaves every
+    street-then-city case unchanged.
+    """
+    import latax
+    import defaults
+
+    reversed_forms = [
+        "Baton Rouge - 5555 Jefferson Hwy",
+        "Baton Rouge: 5555 Jefferson Hwy",
+        "Baton Rouge (5555 Jefferson Hwy)",
+        "Baton Rouge 70806 - 5555 Jefferson Hwy",
+    ]
+    for loc in reversed_forms:
+        par, why = latax.infer_parish(loc)
+        check(f"order: {loc!r} -> East Baton Rouge",
+              par == "east baton rouge", f"got {par!r} ({why})")
+        ins = defaults.derive("insurance", 12, loc)
+        ins = ins[0] if isinstance(ins, tuple) else ins
+        check(f"order: {loc!r} takes the $2,000 inland basis",
+              ins == 2000, f"got {ins!r}")
+
+    # The street-then-city cases the 10-05 fix established must not move.
+    for loc, want in (("5555 Jefferson Hwy, Baton Rouge", "east baton rouge"),
+                      ("1234 Harvey Ln, Baton Rouge", "east baton rouge"),
+                      ("900 Algiers St, Lafayette", "lafayette"),
+                      ("77 Kenner Ave, Hammond", "tangipahoa"),
+                      ("Central Ave, Metairie", "jefferson")):
+        got, _ = latax.infer_parish(loc)
+        check(f"order: {loc!r} still -> {want}", got == want, f"got {got!r}")
+
+
+def test_every_geography_consumer_uses_the_same_resolver():
+    """afcaa73 added infer_parish and wired exactly ONE of its three consumers
+    to it, so one address string produced two different geographic verdicts in
+    the same run: correct $3,000 wind insurance and NO tax reassessment at all.
+    estimate_tax returned None for 97 of 97 towns under "123 Main St, <town>,
+    LA", and run() has no tax derivation of its own, so the $0 stuck. On Treme
+    at its $714,000 rung: NOI $75,500 and IRR 18.24% against $66,076 and
+    12.93%, and a 13% clearing price of $825,737 against $712,682 - $113,055
+    (15.9%) overstated, printing 12.06% at the ask against a true 6.47%.
+    """
+    import latax
+    import defaults
+    import hedonic
+
+    addr = "1429 Governor Nicholls St, Treme, New Orleans, LA 70116"
+    bare = "new orleans"
+
+    ins_a = defaults.derive("insurance", 8, addr)
+    ins_a = ins_a[0] if isinstance(ins_a, tuple) else ins_a
+    tax_a, _ = latax.estimate_tax(714_000, addr)
+    tax_b, _ = latax.estimate_tax(714_000, bare)
+
+    check("consumers: insurance resolves the address", ins_a == 3000, f"got {ins_a!r}")
+    check("consumers: estimate_tax resolves the same address",
+          tax_a is not None, "returned None - taxes would silently freeze at 0")
+    check("consumers: the address and the bare town agree on tax",
+          tax_a is not None and tax_b is not None and abs(tax_a - tax_b) < 1.0,
+          f"address {tax_a!r} vs bare town {tax_b!r}")
+
+    # hedonic is the third copy; its own docstring records a 49% comp-market error.
+    try:
+        mkt = hedonic.market_for_location(addr)
+        resolved = mkt is not None
+    except Exception as e:
+        resolved = False
+    check("consumers: hedonic resolves the address too", resolved,
+          "market_for_location returned None/raised on a full address")
+
+    # parceltax is CLAUDE.md hard pre-offer gate 2 and had its own resolver.
+    import subprocess
+    import pathlib as _pl
+    tools = _pl.Path(latax.__file__).resolve().parent
+    for arg in ("livingston", "Livingston Parish", "ascension parish",
+                "st tammany", "Gonzales"):
+        r = subprocess.run([sys.executable, str(tools / "parceltax.py"),
+                            "--parish", arg, "--assessment", "24637",
+                            "--price", "525000"],
+                           capture_output=True, text=True, cwd=str(tools))
+        check(f"consumers: parceltax accepts --parish {arg!r}",
+              r.returncode == 0, f"exit {r.returncode}: {r.stdout[-120:]}{r.stderr[-120:]}")
+
+
+def test_intake_never_reads_its_own_workbook_as_a_source():
+    """CRITICAL, 2026-10-12: discover() offered intake's own output back to
+    intake. A deal slug only has to contain a FILE_HINTS substring, and
+    street-derived slugs do - "pl_" (Place) matches the t12 hint - so
+    `audubon-pl_acq.xlsx` was selected as the T-12 for deal `audubon-pl`, with
+    the hidden `.audubon-pl_acq.staging.xlsx` as its alternate. The model's
+    Inputs tab then parses as a T-12, its PER-UNIT expense defaults read as
+    ANNUAL totals and divided by the unit count again (payroll $1,715 -> $71),
+    so the SAME COMMAND RUN TWICE took a control deal from OpEx $178,543 /
+    NOI $85,250 / IRR 2.84% / FAIL to OpEx $34,951 / NOI $228,842 / cap 19.07%
+    / IRR 48.52% / "MEETS TARGET" - with zero formula errors and all twelve
+    Checks OK. Runs 3-5 converge on that fixed point.
+
+    Detection is by sheet signature, not filename, so a model workbook planted
+    under any name also cannot be read as a rent roll (where it supplies the
+    master's demo mix and so slips past the F7 "nothing parsed" gate by parsing
+    to something).
+    """
+    import pathlib
+    import shutil
+    import tempfile
+    import intake
+
+    root = pathlib.Path(intake.__file__).resolve().parent.parent
+    donor = next((root / "deal-intake").glob("*/*_acq.xlsx"), None)
+    if donor is None:
+        check("selfread: a model workbook exists to plant", True, "skipped")
+        return
+
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="selfread-"))
+    try:
+        deal = "audubon-pl"           # "pl_" matches the t12 hint
+        d = tmp / deal
+        d.mkdir()
+        shutil.copy(donor, d / f"{deal}_acq.xlsx")
+        shutil.copy(donor, d / f".{deal}_acq.staging.xlsx")
+        shutil.copy(donor, d / "rentroll_planted.xlsx")   # any name
+        (d / "rentroll.csv").write_text("Unit,Type,SF,Rent\n1,1BR/1BA,700,850\n")
+
+        skipped = []
+        found, alternates = intake.discover(d, skipped=skipped)
+
+        chosen = {k: v.name for k, v in found.items()}
+        check("selfread: our own output is not chosen as a source",
+              all("_acq.xlsx" not in n for n in chosen.values()), f"chosen={chosen}")
+        check("selfread: the hidden staging file is not chosen either",
+              all(not n.startswith(".") for n in chosen.values()), f"chosen={chosen}")
+        check("selfread: a model workbook under any name is excluded",
+              "rentroll_planted.xlsx" not in chosen.values(), f"chosen={chosen}")
+        check("selfread: it is not demoted to an alternate, it is excluded",
+              all("_acq.xlsx" not in x.name and "planted" not in x.name
+                  for lst in alternates.values() for x in lst),
+              f"alternates={{k: [x.name for x in v] for k, v in alternates.items()}}")
+        check("selfread: the exclusions are surfaced, not silent",
+              len(skipped) == 3, f"skipped={[x.name for x in skipped]}")
+        check("selfread: the genuine rent roll is still chosen",
+              chosen.get("rent_roll") == "rentroll.csv", f"chosen={chosen}")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # And no live deal's source selection moved.
+    for deal_dir in sorted((root / "deal-intake").iterdir()):
+        if not deal_dir.is_dir() or deal_dir.name.startswith("_"):
+            continue
+        sk = []
+        found, _ = intake.discover(deal_dir, skipped=sk)
+        check(f"selfread: {deal_dir.name} still finds a rent roll",
+              "rent_roll" in found, f"found={list(found)}")
+
+
+def test_writer_refuses_an_excel_error_token():
+    """The 10-05 formula guard tests only a leading "=", so an Excel error token
+    still got through - and it does not stay inert. openpyxl stores "#N/A" with
+    data_type='e' and the LibreOffice recalc round-trip promotes it to `=#N/A`
+    with data_type='f': a live formula in a documented input cell, the exact
+    invariant F8 was written to establish. Reproduced 2026-10-12 on Inputs!F3
+    via write_rent_roll from a broker roll carrying #N/A in the Unit Type column
+    (ordinary cause: a broken VLOOKUP in the seller's own export); #REF! behaves
+    identically.
+    """
+    import shutil
+    import tempfile
+    import pathlib
+    import cellmap
+    from safe_writer import ModelWriter, FormulaGuardError
+
+    root = pathlib.Path(pymodel.__file__).resolve().parent.parent
+    master = root / "Multifamily_Acquisition_Model.xlsx"
+    if not master.exists():
+        check("errtok: master present", True, "skipped")
+        return
+
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="errtok-"))
+    try:
+        work = tmp / "m.xlsx"
+        shutil.copy(master, work)
+        spec = cellmap.MODELS["acq"]
+        m = spec["rent_roll"]
+        w = ModelWriter(work, spec)
+
+        for tok in cellmap.ERROR_TOKENS:
+            try:
+                w.set_rc(m["sheet"], m["first_row"], m["col_type"], tok)
+                check(f"errtok: {tok} is refused", False, "it was written")
+            except FormulaGuardError:
+                check(f"errtok: {tok} is refused", True)
+        try:
+            w.set_rc(m["sheet"], m["first_row"], m["col_type"], " #N/A ")
+            check("errtok: a padded token is refused too", False, "it was written")
+        except FormulaGuardError:
+            check("errtok: a padded token is refused too", True)
+
+        # A real unit type must still write.
+        try:
+            w.set_rc(m["sheet"], m["first_row"], m["col_type"], "1 BR/ 1 BA")
+            check("errtok: a genuine unit type still writes", True)
+        except FormulaGuardError as e:
+            check("errtok: a genuine unit type still writes", False, str(e)[:80])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_an_orleans_neighbourhood_is_not_read_as_a_baton_rouge_town():
+    """`infer_parish("Central City")` asserted "matched town 'central' in East
+    Baton Rouge Parish" for an Orleans neighbourhood - the same token bug the
+    09-28 sweep removed from portfolio_sim ($10,880 vs $13,199 of tax, 17.6%
+    understated), reintroduced inside latax by the 10-05 F4 fix. The record
+    `central-city-2nd` is a real pipeline entry, and this is the one Orleans
+    neighbourhood that asserted a FALSE parish with a confident note rather
+    than degrading to None.
+
+    Punctuation was the other half: "Baton Rouge: 5555 Jefferson Hwy" tokenized
+    as ["baton", "rouge:", ...], so the two-word city could not match and the
+    stray "jefferson" won.
+    """
+    import latax
+    import defaults
+
+    for loc in ("Central City", "central city", "1234 Second St, Central City, LA",
+                "Central City, New Orleans"):
+        par, why = latax.infer_parish(loc)
+        check(f"nbhd: {loc!r} -> Orleans", par == "orleans", f"got {par!r} ({why})")
+        ins = defaults.derive("insurance", 8, loc)
+        ins = ins[0] if isinstance(ins, tuple) else ins
+        check(f"nbhd: {loc!r} takes the $3,000 wind basis", ins == 3000, f"got {ins!r}")
+
+    # The genuine East Baton Rouge town of Central must not move.
+    par, _ = latax.infer_parish("central")
+    check("nbhd: the EBR town 'central' still resolves to East Baton Rouge",
+          par == "east baton rouge", f"got {par!r}")
+
+    # Punctuation must not weld itself to a token, and a zip+4 must survive.
+    for loc, want in (("Baton Rouge: 5555 Jefferson Hwy", "east baton rouge"),
+                      ("Baton Rouge (5555 Jefferson Hwy)", "east baton rouge"),
+                      ("Baton Rouge, LA 70806-1234", "east baton rouge"),
+                      ("Plaquemines Parish, LA 70037", "plaquemines")):
+        got, _ = latax.infer_parish(loc)
+        check(f"nbhd: {loc!r} -> {want}", got == want, f"got {got!r}")
 
 
 if __name__ == "__main__":

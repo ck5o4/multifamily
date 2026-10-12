@@ -83,7 +83,13 @@ def market_for_location(location):
         return None, "latax unavailable"
     if not location:
         return None, "no location on the deal record"
-    parish, how = latax.resolve_parish(location)
+    # Sweep 2026-10-12: the third copy of the afcaa73 geography asymmetry.
+    # resolve_parish does not understand an address string or "<town>, <Parish>
+    # Parish", so this returned None for '1429 Governor Nicholls St, Treme, New
+    # Orleans, LA 70116' and for '30263 Eden Church Rd, Denham Springs, LA
+    # 70726' - and this function's own docstring records a $42,021 vs
+    # $83,047/unit (49% low) error from picking the wrong comp market.
+    parish, how = latax.infer_parish(location)
     if parish is None:
         return None, how
     market = PARISH_TO_MARKET.get(parish)

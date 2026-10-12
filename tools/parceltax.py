@@ -19,6 +19,7 @@ is exactly why reassessment risk is real.
 import argparse
 import sys
 
+import latax
 from latax import (MILLAGE, ASSESSMENT_RATIO_RESIDENTIAL,
                    ASSESSMENT_RATIO_COMMERCIAL, validate_commercial_share)
 
@@ -40,9 +41,15 @@ def main():
     except ValueError as e:
         raise SystemExit(f"error: {e}")
 
-    parish = args.parish.lower().strip()
+    # Sweep 2026-10-12: this did its own `lower().strip()` and so rejected the
+    # forms the 10-05 F5 fix taught latax to accept - "Livingston Parish",
+    # "ascension parish", "st tammany" and any town name all exited 1, three
+    # weeks after that fix, on the tool tools/README.md names as hard pre-offer
+    # gate 2. Loud, so no wrong number, but it blocked the gate on strings the
+    # rest of the repo accepts.
+    parish, how = latax.infer_parish(args.parish)
     if parish not in MILLAGE:
-        raise SystemExit(f"Unknown parish {parish!r}. Known: {', '.join(sorted(MILLAGE))}")
+        raise SystemExit(f"Unknown parish {args.parish!r}: {how}")
     mills = args.millage if args.millage else MILLAGE[parish]
     source = "parcel district" if args.millage else "parish average"
 

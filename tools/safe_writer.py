@@ -4,6 +4,7 @@ currently holds a formula."""
 
 import shutil
 from pathlib import Path
+import cellmap
 
 import openpyxl
 
@@ -64,6 +65,27 @@ class ModelWriter:
                 f"{value[:40]!r}. Input cells hold values, not formulas; a "
                 f"parsed label or rent that looks like this is a parse error "
                 f"or a spreadsheet-injection attempt in the source file."
+            )
+        # Sweep 2026-10-12: the 10-05 guard above tests only a leading "=", so
+        # an Excel error token still got through, and it does not stay inert.
+        # openpyxl stores "#N/A" with data_type='e'; the LibreOffice recalc
+        # round-trip promotes it to `=#N/A` with data_type='f' - a live formula
+        # in a documented input cell, the exact invariant the 10-05 fix was
+        # written to establish. Reproduced on Inputs!F3 via write_rent_roll from
+        # a broker roll carrying #N/A in the Unit Type column (the ordinary
+        # cause is a broken VLOOKUP in the seller's own export); #REF! behaves
+        # identically. scan_errors does catch the result and MODEL INTEGRITY
+        # reads FAIL, so no false PURSUE - but the write should never land.
+        # (Checked and NOT a hole: "+SUM(A1)" and "@SUM(A1)" round-trip as
+        # strings with data_type='s', so the CSV-injection prefixes need no
+        # guard of their own.)
+        if isinstance(value, str) and value.strip() in cellmap.ERROR_TOKENS:
+            raise FormulaGuardError(
+                f"refusing to write the ERROR TOKEN {value.strip()!r} into "
+                f"{sheet}!{cell.coordinate}. openpyxl stores it as an error and "
+                f"the LibreOffice recalc turns it into a live formula in an "
+                f"input cell. It means the source file's own formula was broken "
+                f"- fix or drop that row rather than carrying the error in."
             )
         if self._is_blue_input(cell) or self._in_paste_range(sheet, cell.row, cell.column):
             return

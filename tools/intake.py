@@ -60,15 +60,56 @@ def _recency_key(p):
     return (0, "", p.name)
 
 
-def discover(deal_dir):
+def _is_model_workbook(path):
+    """True if this file is one of OUR model workbooks, not a deal document.
+
+    Sweep 2026-10-12: discover() happily offered intake's own output back to
+    intake as a source. The deal slug only has to contain a FILE_HINTS
+    substring, and street-derived slugs do: "pl_" (Place) matches the t12 hint,
+    so `audubon-pl_acq.xlsx` was selected as the T-12 for deal `audubon-pl`,
+    and the hidden `.audubon-pl_acq.staging.xlsx` ranked as its alternate. The
+    model's Inputs tab then parses as a T-12 with its PER-UNIT expense defaults
+    read as ANNUAL totals and divided by the unit count again (payroll $1,715
+    -> $71/unit), so the same command run twice took a control deal from
+    OpEx $178,543 / NOI $85,250 / IRR 2.84% / FAIL to OpEx $34,951 /
+    NOI $228,842 / cap 19.07% / IRR 48.52% / "MEETS TARGET", with zero formula
+    errors and all twelve Checks OK. Runs 3-5 converge on that fixed point.
+
+    Detecting it by sheet signature rather than by filename also closes the
+    other half: a model workbook planted under ANY name can no longer be read
+    as a rent roll, where it supplies the master's demo mix and so slips past
+    the F7 "nothing parsed" gate by parsing to something. No seller document
+    carries these tabs.
+    """
+    if path.suffix.lower() not in (".xlsx", ".xlsm"):
+        return False
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(str(path), read_only=True)
+        try:
+            names = set(wb.sheetnames)
+        finally:
+            wb.close()
+    except Exception:
+        return False
+    return "Checks" in names and bool(names & {"Annual CF", "Monthly CF"})
+
+
+def discover(deal_dir, skipped=None):
     """Return ({kind: chosen Path}, {kind: [rejected Paths]}).
 
     Every candidate is surfaced: nothing is silently dropped (tools/README.md).
+    `skipped`, if given, is filled with files excluded as our own artifacts.
     """
     cands = {kind: [] for kind in FILE_HINTS}
     if deal_dir.exists():
         for p in sorted(deal_dir.iterdir()):
             if p.suffix.lower() not in (".csv", ".xlsx", ".xlsm", ".pdf"):
+                continue
+            if p.name.startswith(".") or _is_model_workbook(p):
+                # Our own output, staging file, or solver temp - never a source.
+                if skipped is not None:
+                    skipped.append(p)
                 continue
             low = p.name.lower()
             for kind, hints in FILE_HINTS.items():
@@ -195,7 +236,8 @@ def main():
 
     spec = MODELS[args.model]
     deal_dir = INTAKE / args.deal
-    src, alternates = discover(deal_dir)
+    skipped_artifacts = []
+    src, alternates = discover(deal_dir, skipped=skipped_artifacts)
     if args.rent_roll:
         src["rent_roll"] = Path(args.rent_roll)
     if args.t12:
@@ -207,6 +249,13 @@ def main():
     print(f"  intake dir: {deal_dir}")
     for k in ("rent_roll", "t12", "comps"):
         print(f"  {k:<10} {src.get(k) if src.get(k) else '(none)'}")
+    if skipped_artifacts:
+        # Surfaced, not silent (tools/README.md): these were excluded as this
+        # pipeline's own artifacts, never as deal documents.
+        print(f"  SKIPPED as our own model workbook / staging file "
+              f"(never a data source):")
+        for sp in skipped_artifacts:
+            print(f"    - {sp.name}")
 
     groups, comp_groups, t12_lines = [], [], {}
     all_notes = []

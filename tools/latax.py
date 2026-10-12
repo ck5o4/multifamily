@@ -47,9 +47,24 @@ CITY_TO_PARISH = {}
 for _parish, _towns in {
     "east baton rouge": ["baton rouge", "baker", "zachary", "central", "greenwell springs", "pride"],
     "lafayette": ["lafayette", "broussard", "youngsville", "carencro", "scott", "duson"],
-    "orleans": ["new orleans", "nola", "algiers"],
+    # Sweep 2026-10-12: "central city" matched the EBR town "central" and
+    # infer_parish asserted "matched town 'central' in East Baton Rouge Parish"
+    # for an Orleans neighbourhood - the same token bug the 09-28 sweep removed
+    # from portfolio_sim ($10,880 vs $13,199 of tax, 17.6% understated), and
+    # `central-city-2nd` is a real pipeline record. Listing it explicitly lets
+    # the longest-match tie-break resolve it.
+    "orleans": ["new orleans", "nola", "algiers", "central city", "treme",
+                "mid-city", "mid city", "bywater", "marigny", "gentilly",
+                "lakeview", "broadmoor", "carrollton"],
+    # Sweep 2026-10-12: estelle, timberlane, waggaman and bridge city were in
+    # the pre-afcaa73 defaults._WIND_TOWNS tuple and were dropped when F4 moved
+    # geography onto this table, so each silently fell to the $2,000 inland
+    # insurance basis - a 13% clearing price of $655,451 against a correct
+    # $529,750 on a 12-unit x $950 deal, $125,701 (23.7%) overstated, each.
+    # All four are Jefferson Parish census places with multifamily stock.
     "jefferson": ["metairie", "kenner", "gretna", "harvey", "marrero", "westwego",
-                  "terrytown", "harahan", "river ridge", "avondale", "jefferson", "elmwood"],
+                  "terrytown", "harahan", "river ridge", "avondale", "jefferson", "elmwood",
+                  "estelle", "timberlane", "waggaman", "bridge city"],
     "ascension": ["gonzales", "prairieville", "geismar", "sorrento", "donaldsonville",
                   "st. amant", "st amant", "dutchtown", "darrow"],
     "livingston": ["denham springs", "walker", "livingston", "watson", "springfield",
@@ -90,7 +105,35 @@ def _norm(s):
     # "Jefferson Davis Parish" correctly stays unresolved rather than becoming
     # Jefferson.
     key = re.sub(r"\s+parish$", "", key)
-    return key.strip()
+    # Sweep 2026-10-12: punctuation welded itself to the token, so
+    # "Baton Rouge: 5555 Jefferson Hwy" tokenized as ["baton", "rouge:", ...]
+    # and the two-word city could not match while the stray "jefferson" could.
+    # Done AFTER the zip strip above, which needs its hyphen intact.
+    key = re.sub(r"[:;()\[\]/\\|,-]+", " ", key)
+    return re.sub(r"\s+", " ", key).strip()
+
+
+def _norm_keep_parish(s):
+    """_norm without the trailing-"parish" strip, for phrase detection."""
+    key = str(s or "").strip().lower().replace(",", "")
+    key = re.sub(r"\s+\d{5}(-\d{4})?$", "", key)
+    key = re.sub(r"\s+(la|louisiana)$", "", key)
+    key = re.sub(r"[:;()\[\]/\\|,-]+", " ", key)
+    return re.sub(r"\s+", " ", key).strip()
+
+
+# Louisiana parishes absent from MILLAGE whose names contain a town that is in
+# CITY_TO_PARISH. Checked before town-token matching.
+_CONFUSABLE_PARISHES = ("jefferson davis",)
+
+
+_US_STATES = {
+    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id",
+    "il", "in", "ia", "ks", "ky", "me", "md", "ma", "mi", "mn", "ms", "mo",
+    "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or",
+    "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi",
+    "wy", "dc",
+}
 
 
 def resolve_parish(location):
@@ -149,23 +192,80 @@ def infer_parish(location):
     if parish:
         return parish, how
 
-    if re.search(r"\bparish\b", raw):
+    # Sweep 2026-10-12, REGRESSION FROM afcaa73 (F4/F5): the bail-out below
+    # tested for the word "parish" ANYWHERE, while _norm strips it only when
+    # TRAILING. So the moment a town preceded the parish - the form a human
+    # types - resolution returned None and both the insurance basis and the tax
+    # reassessment were lost. All 97 towns failed under "<town>, <Parish>
+    # Parish"; 25 of them are in a wind parish and the pre-fix substring code
+    # got every one right. "Chalmette, St. Bernard Parish" took the $2,000
+    # inland basis: 13% clearing price $640,229 against a correct $517,448,
+    # $122,781 (23.7%) overstated - and treme-gov-nicholls, live and
+    # board-ranked, records its location as "1429 Governor Nicholls St, Treme,
+    # Orleans Parish", which is exactly that form.
+    #
+    # Precedence now: an explicit "<phrase> parish" wins (and an unknown one
+    # still fails loudly, so "Jefferson Davis Parish" does NOT become
+    # Jefferson), then town tokens.
+    m = re.search(r"\b([a-z.'\s]+?)\s+parish\b", _norm_keep_parish(location))
+    if m:
+        named = _norm(m.group(1))
+        # Longest trailing phrase first: "jefferson davis" must be tried whole
+        # before "davis" or "jefferson".
+        words = named.split()
+        for start in range(len(words)):
+            cand = " ".join(words[start:])
+            if cand in MILLAGE:
+                return cand, f"named {cand.title()} Parish"
+            if cand in CITY_TO_PARISH:
+                return CITY_TO_PARISH[cand], (f"matched town {cand!r} in "
+                                              f"{CITY_TO_PARISH[cand].title()} Parish")
+        # A parish was named and it is not one we carry: fail loudly rather
+        # than fall through to a town token inside its name.
         return None, (f"{location!r} names a parish that is not in the millage "
                       f"table. Known: {', '.join(sorted(MILLAGE))}")
 
+    # Parish names we do NOT carry that contain a town we DO: without this,
+    # "Jennings, Jefferson Davis, LA" (no literal "parish", so the branch above
+    # does not fire) matched the town "jefferson" and took Jefferson Parish's
+    # 118.40 millage and $3,000 wind basis for an inland rice-country deal.
+    # F4 named Jefferson Davis as its own counterexample; it only ever held
+    # for the spelling that includes the word "parish".
+    _norm_loc = _norm(location)
+    for _confusable in _CONFUSABLE_PARISHES:
+        if re.search(r"\b" + re.escape(_confusable) + r"\b", _norm_loc):
+            return None, (f"{location!r} names {_confusable.title()} Parish, "
+                          f"which is not in the millage table. Known: "
+                          f"{', '.join(sorted(MILLAGE))}")
+
+    # A non-Louisiana state makes every town match meaningless: "Jefferson, TX"
+    # resolved to Jefferson Parish and took the Louisiana 118.40 millage.
+    st = re.search(r"\b([a-z]{2})\b\s*(\d{5}(-\d{4})?)?$", _norm(location))
+    if st and st.group(1) not in ("la",) and st.group(1) in _US_STATES:
+        return None, (f"{location!r} is not in Louisiana "
+                      f"(state {st.group(1).upper()})")
+
     tokens = _norm(location).split()
-    best = None   # (end_index, n_words, parish)
+    best = None   # (n_words, end_index, parish)
     for city, par in CITY_TO_PARISH.items():
         ct = city.split()
         n = len(ct)
         for i in range(len(tokens) - n + 1):
             if tokens[i:i + n] == ct:
-                cand = (i + n, n, par)
+                # Sweep 2026-10-12: the key was (end_index, n_words), so a
+                # 1-word town LATER in the string beat the real city earlier in
+                # it - "Baton Rouge - 5555 Jefferson Hwy" resolved to Jefferson
+                # Parish and asserted it as fact, taking $3,000/unit wind on a
+                # Baton Rouge property (13% rung $535,092 against a correct
+                # $662,167). Preferring the longest match fixes the reversed
+                # order while keeping every street-then-city case unchanged.
+                cand = (n, i + n, par)
                 if best is None or cand[:2] > best[:2]:
                     best = cand
     if best:
-        return best[2], (f"matched town {' '.join(tokens[best[0]-best[1]:best[0]])!r} "
-                         f"in {best[2].title()} Parish")
+        n, end, par = best
+        return par, (f"matched town {' '.join(tokens[end-n:end])!r} "
+                     f"in {par.title()} Parish")
     return None, (f"no known Louisiana town found in {location!r}")
 
 
@@ -194,7 +294,16 @@ def estimate_tax(price, location, commercial_share=0.0):
     # building (16x the truth) and a negative share quietly cut the bill below
     # the residential floor. defaults.py already guards its own fraction keys.
     validate_commercial_share(commercial_share)
-    parish, how = resolve_parish(location)
+    # Sweep 2026-10-12: afcaa73 added infer_parish and wired exactly one of its
+    # three consumers (defaults.wind_exposed) to it, so one address string
+    # produced two different geographic verdicts in the same run - correct
+    # $3,000 wind insurance and NO tax reassessment at all. estimate_tax
+    # returned None for 97 of 97 towns under "123 Main St, <town>, LA", and
+    # run() has no tax derivation of its own, so the $0 stuck: on Treme at its
+    # $714,000 rung that is $75,500 NOI and 18.24% IRR against $66,076 and
+    # 12.93%, and a 13% clearing price of $825,737 against $712,682 -
+    # $113,055 (15.9%) overstated.
+    parish, how = infer_parish(location)
     if parish is None:
         return None, how
     mills = MILLAGE[parish]
