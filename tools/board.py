@@ -237,8 +237,23 @@ def rung(target, label, lad, lad_beats):
         return (f'<div class="row"><span class="k">Price for a {target*100:.0f}% return '
                 f'<small>{label}</small></span><span class="v">n/a</span></div>')
     b = (lad_beats or {}).get(target)
+    # Sweep 2026-10-12: inside the coin-flip band this asserted a VERDICT that
+    # the draw count cannot support, and then appended a line contradicting it.
+    # eden's 16% rung ($1,443,000) printed "beats index 50.2% - clears the
+    # house rule" at the hardcoded n=1000, seed 42 - and has carried that label
+    # on every render since 10-05. At n=10,000 over 12 seeds it is mean 49.30%
+    # [48.82-50.08] and clears 1 of 12; the 13% rung is 42.23% vs 41.43%. So
+    # the 10-05 deferred item's "no verdict flips" is false for the very fix it
+    # recommends. Raising n is still the real fix and is deferred with those
+    # numbers; what is fixed here is the board asserting a verdict it cannot
+    # have, on the rung Anthony is told is his "strong deal" price.
+    coin_flip = b is not None and abs(b - 0.50) < 0.03
     if b is None:
         note = ""
+    elif coin_flip:
+        note = (f'<small class="warn">beats index {b*100:.1f}% — too close to call '
+                f'at this draw count: a coin flip against an index fund, not a '
+                f'verdict either way</small>')
     elif b > 0.50:
         note = f'<small class="ok">beats index {b*100:.1f}% — clears the house rule</small>'
     else:
@@ -247,11 +262,6 @@ def rung(target, label, lad, lad_beats):
         # 50% — clears", printing the same number for opposite verdicts.
         note = (f'<small class="warn">beats index only {b*100:.1f}% — FAILS the house '
                 f'rule at this price</small>')
-    if b is not None and abs(b - 0.50) < 0.03:
-        # ~1.15pp of MC noise at n=1000 (measured over seeds 1-25), so a rung
-        # this close to the line is not a stable binary.
-        note += ('<small class="warn"> · within MC noise of the 50% line — '
-                 'treat as a coin flip, not a verdict</small>')
     return (f'<div class="row"><span class="k">Price for a {target*100:.0f}% return '
             f'<small>{label}</small></span>'
             f'<span class="v">{money(price)} {note}</span></div>')

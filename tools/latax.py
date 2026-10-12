@@ -127,6 +127,17 @@ def _norm_keep_parish(s):
 _CONFUSABLE_PARISHES = ("jefferson davis",)
 
 
+# A town name immediately followed by one of these is part of a street name,
+# not the locality: "Jefferson Hwy", "Central City Rd", "Baton Rouge Ave".
+_STREET_SUFFIXES = {
+    "st", "street", "rd", "road", "ave", "avenue", "blvd", "boulevard",
+    "ln", "lane", "dr", "drive", "ct", "court", "cir", "circle", "pkwy",
+    "parkway", "hwy", "highway", "way", "pl", "place", "ter", "terrace",
+    "trail", "trl", "loop", "run", "row", "path", "pike", "rte", "route",
+    "expy", "expressway", "bypass", "byp", "ext", "extension", "sq", "square",
+}
+
+
 _US_STATES = {
     "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id",
     "il", "in", "ia", "ks", "ky", "me", "md", "ma", "mi", "mn", "ms", "mo",
@@ -246,24 +257,40 @@ def infer_parish(location):
                       f"(state {st.group(1).upper()})")
 
     tokens = _norm(location).split()
-    best = None   # (n_words, end_index, parish)
+    best = None   # (not_in_a_street_name, n_words, end_index, parish)
     for city, par in CITY_TO_PARISH.items():
         ct = city.split()
         n = len(ct)
         for i in range(len(tokens) - n + 1):
-            if tokens[i:i + n] == ct:
-                # Sweep 2026-10-12: the key was (end_index, n_words), so a
-                # 1-word town LATER in the string beat the real city earlier in
-                # it - "Baton Rouge - 5555 Jefferson Hwy" resolved to Jefferson
-                # Parish and asserted it as fact, taking $3,000/unit wind on a
-                # Baton Rouge property (13% rung $535,092 against a correct
-                # $662,167). Preferring the longest match fixes the reversed
-                # order while keeping every street-then-city case unchanged.
-                cand = (n, i + n, par)
-                if best is None or cand[:2] > best[:2]:
-                    best = cand
+            if tokens[i:i + n] != ct:
+                continue
+            # Sweep 2026-10-12, and then a second pass the same day.
+            #
+            # afcaa73's key was (end_index, n_words) - position before length -
+            # so a 1-word town LATER in the string beat the real city earlier
+            # in it: "Baton Rouge - 5555 Jefferson Hwy" resolved to Jefferson
+            # Parish and said so as a fact, taking $3,000/unit wind on a Baton
+            # Rouge property (13% rung $535,092 against a correct $662,167).
+            #
+            # Flipping it to (n_words, end_index) fixed that and broke the
+            # mirror case, which the reporting auditor caught: a multi-word
+            # table entry sitting inside a STREET name, ahead of a one-word
+            # real city, then won - "1 Central City Rd, Baker, LA" resolved to
+            # Orleans where the city is Baker, and "100 Baton Rouge Ave,
+            # Gonzales, LA" to East Baton Rouge rather than Ascension.
+            #
+            # Neither ordering can be right, because the real signal is not
+            # position or length: it is whether the match is part of a street
+            # name. A town immediately followed by a street-type suffix is, so
+            # it is demoted below any match that is not. That resolves both
+            # directions, and single-city strings never exercise it at all.
+            nxt = tokens[i + n] if i + n < len(tokens) else ""
+            in_street_name = nxt in _STREET_SUFFIXES
+            cand = (not in_street_name, n, i + n, par)
+            if best is None or cand[:3] > best[:3]:
+                best = cand
     if best:
-        n, end, par = best
+        _clean, n, end, par = best
         return par, (f"matched town {' '.join(tokens[end-n:end])!r} "
                      f"in {par.title()} Parish")
     return None, (f"no known Louisiana town found in {location!r}")

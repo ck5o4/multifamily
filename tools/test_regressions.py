@@ -1166,6 +1166,7 @@ def main():
     test_intake_never_reads_its_own_workbook_as_a_source()
     test_writer_refuses_an_excel_error_token()
     test_an_orleans_neighbourhood_is_not_read_as_a_baton_rouge_town()
+    test_board_does_not_assert_a_verdict_inside_the_coin_flip_band()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)
@@ -2423,6 +2424,20 @@ def test_town_before_street_resolves_to_the_town():
         check(f"order: {loc!r} takes the $2,000 inland basis",
               ins == 2000, f"got {ins!r}")
 
+    # And the MIRROR case, which the first attempt at this fix broke: a
+    # multi-word table entry inside a STREET name, ahead of a one-word real
+    # city. Flipping the key to (n_words, end_index) made "1 Central City Rd,
+    # Baker, LA" resolve to Orleans where the city is Baker. Neither pure
+    # ordering can be right - the real signal is whether the match is followed
+    # by a street-type suffix - so both directions are pinned here.
+    for loc, want in (("1 Central City Rd, Baker, LA", "east baton rouge"),
+                      ("100 Baton Rouge Ave, Gonzales, LA", "ascension"),
+                      ("1 Gretna Blvd, Hammond, LA", "tangipahoa"),
+                      ("200 Covington St, Gonzales, LA", "ascension")):
+        got, why = latax.infer_parish(loc)
+        check(f"order: {loc!r} -> {want} (town in a street name is demoted)",
+              got == want, f"got {got!r} ({why})")
+
     # The street-then-city cases the 10-05 fix established must not move.
     for loc, want in (("5555 Jefferson Hwy, Baton Rouge", "east baton rouge"),
                       ("1234 Harvey Ln, Baton Rouge", "east baton rouge"),
@@ -2643,6 +2658,57 @@ def test_an_orleans_neighbourhood_is_not_read_as_a_baton_rouge_town():
                       ("Plaquemines Parish, LA 70037", "plaquemines")):
         got, _ = latax.infer_parish(loc)
         check(f"nbhd: {loc!r} -> {want}", got == want, f"got {got!r}")
+
+
+def test_board_does_not_assert_a_verdict_inside_the_coin_flip_band():
+    """The board published "clears the house rule" on eden's $1,443,000 rung -
+    the price its own copy calls the strong-deal price - and that label is an
+    artifact of the hardcoded n=1000, seed 42.
+
+    Reproduced 2026-10-12 with the real generator, only `n` changed:
+
+        16% rung $1,443,000   n=1000 seed42 = 50.16%  -> "clears"
+                              n=10,000 x 12 seeds: mean 49.30% [48.82-50.08]
+                              clears >50% in 1 of 12
+        13% rung $1,559,000   n=1000 seed42 = 42.23%; n=10k mean 41.43%
+
+    Every committed render since 10-05 carries "beats index 50.2% - clears the
+    house rule" on that rung, while the 10-05 report's own Reporting table
+    printed "eden 16% 49.0% FAILS" the same day. So that sweep's deferred claim
+    that raising n flips no verdict is false for the fix it recommends.
+
+    Raising the draw count is the real fix and is deferred with those numbers.
+    What this pins is narrower and costs no draws: inside the +/-3pp band the
+    page may not assert EITHER verdict. It used to print "clears" and then
+    append a line calling the same number a coin flip.
+    """
+    import re
+    import board
+
+    for b in (0.5016, 0.4930, 0.52, 0.4701):
+        out = board.rung(0.16, "strong", {0.16: 1_443_000}, {0.16: b})
+        check(f"coinflip: b={b} does not claim it clears",
+              "clears the house rule" not in out, out[-160:])
+        check(f"coinflip: b={b} does not claim it FAILS either",
+              "FAILS the house" not in out, out[-160:])
+        check(f"coinflip: b={b} says it is too close to call",
+              "too close to call" in out, out[-160:])
+        check(f"coinflip: b={b} still prints the number to one decimal",
+              f"{b*100:.1f}%" in out, out[-160:])
+
+    # Outside the band both verdicts must still be stated plainly.
+    out_hi = board.rung(0.16, "strong", {0.16: 1_443_000}, {0.16: 0.62})
+    check("coinflip: a clear pass still reads 'clears the house rule'",
+          "clears the house rule" in out_hi and "too close" not in out_hi)
+    out_lo = board.rung(0.16, "strong", {0.16: 1_443_000}, {0.16: 0.42})
+    check("coinflip: a clear fail still reads 'FAILS the house rule'",
+          "FAILS the house" in out_lo and "too close" not in out_lo)
+
+    # And a missing score must stay silent rather than invent a verdict.
+    out_none = board.rung(0.16, "strong", {0.16: 1_443_000}, {0.16: None})
+    check("coinflip: an unscored rung asserts nothing",
+          "clears" not in out_none and "FAILS" not in out_none
+          and "too close" not in out_none)
 
 
 if __name__ == "__main__":
