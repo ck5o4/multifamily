@@ -1167,6 +1167,7 @@ def main():
     test_writer_refuses_an_excel_error_token()
     test_an_orleans_neighbourhood_is_not_read_as_a_baton_rouge_town()
     test_board_does_not_assert_a_verdict_inside_the_coin_flip_band()
+    test_rates_persists_a_baseline_and_diffs_against_it()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)
@@ -2709,6 +2710,87 @@ def test_board_does_not_assert_a_verdict_inside_the_coin_flip_band():
     check("coinflip: an unscored rung asserts nothing",
           "clears" not in out_none and "FAILS" not in out_none
           and "too close" not in out_none)
+
+
+def test_rates_persists_a_baseline_and_diffs_against_it():
+    """Every daily scan from 2026-09-29 to 10-12 recorded the same finding:
+    rates.py printed live figures and stored nothing, so the routine's step-2
+    question - "has the 10yr moved >25bps since the last snapshot" - was
+    unanswerable BY CONSTRUCTION, there being no snapshot to diff against.
+
+    This pins the persistence half, which is testable without FRED:
+      - a fresh history reads as empty rather than raising
+      - an appended row is read back, and is the one `last_snapshot` returns
+      - `drift` reports bps deltas signed live-minus-stored
+      - a series absent from the stored row yields no fabricated delta
+      - a corrupt line does not stop the good rows being read
+    """
+    import json
+    import os
+    import tempfile
+
+    import rates
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "nested", "rates.jsonl")
+
+        # No file yet: empty history, no baseline, and no exception.
+        check("rates: a missing history file reads as empty",
+              rates.read_history(path) == [])
+        check("rates: a missing history file has no baseline",
+              rates.last_snapshot(path) is None)
+
+        rates.append_snapshot(
+            {"observed": "2026-08-17",
+             "rates": {"DPRIME": 6.75, "DGS10": 4.68, "SOFR": 3.62},
+             "source": "FRED fredgraph.csv"}, path)
+        check("rates: an appended row is read back",
+              len(rates.read_history(path)) == 1)
+        check("rates: the appended row is the baseline",
+              (rates.last_snapshot(path) or {}).get("observed") == "2026-08-17")
+
+        # Newest-by-date wins even when appended out of order.
+        rates.append_snapshot(
+            {"observed": "2026-07-01",
+             "rates": {"DPRIME": 7.00, "DGS10": 4.20, "SOFR": 3.90}}, path)
+        check("rates: the newest row by date is the baseline, not the last line",
+              (rates.last_snapshot(path) or {}).get("observed") == "2026-08-17")
+
+        # A corrupt line must not hide the good rows.
+        with open(path, "a") as fh:
+            fh.write("{not json at all\n")
+        check("rates: a corrupt line does not lose the good rows",
+              len(rates.read_history(path)) == 2)
+
+        prev = rates.last_snapshot(path)
+
+    # Signed deltas, in bps, live minus stored.
+    live = {"DPRIME": 6.75, "DGS10": 4.95, "SOFR": 3.50}
+    by_series = {d[0]: d for d in rates.drift(prev, live)}
+    check("rates: an unchanged series reads 0bps",
+          abs(by_series["DPRIME"][3]) < 1e-9, str(by_series["DPRIME"]))
+    check("rates: a 27bps rise in the 10yr is reported as +27bps",
+          abs(by_series["DGS10"][3] - 27.0) < 1e-6, str(by_series["DGS10"]))
+    check("rates: a fall is reported negative",
+          by_series["SOFR"][3] < 0, str(by_series["SOFR"]))
+    check("rates: a 27bps move exceeds the routine's 25bps flag",
+          abs(by_series["DGS10"][3]) > rates.DRIFT_FLAG_BPS)
+
+    # A series the stored row never carried must not produce a delta of 0.
+    thin = {"observed": "2026-08-17", "rates": {"DPRIME": 6.75}}
+    thin_drift = {d[0]: d for d in rates.drift(thin, live)}
+    check("rates: a series missing from the stored row yields no delta",
+          thin_drift["DGS10"][1] is None and thin_drift["DGS10"][3] is None,
+          str(thin_drift["DGS10"]))
+
+    # Fail-closed: the fetch path still raises rather than substituting a
+    # stored figure for a live one.
+    rates_src = open(os.path.join(os.path.dirname(rates.__file__),
+                                  "rates.py")).read()
+    fetch = rates_src[rates_src.index("def latest("):rates_src.index("def read_history(")]
+    check("rates: a failed fetch still raises instead of falling back",
+          "SystemExit" in fetch
+          and "last_snapshot" not in fetch and "read_history" not in fetch)
 
 
 if __name__ == "__main__":

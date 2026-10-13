@@ -264,14 +264,18 @@ confidence instead of estimated confidence. Lives in portfolio/calibration.json.
 ## Free federal data (no subscriptions)
 
     python3 tools/flood.py "41063 Cannon Rd, Gonzales, LA"   # FEMA flood zone, SFHA flag
-    python3 tools/rates.py                                   # prime/10yr/SOFR vs defaults.py, exits 1 if stale
+    python3 tools/rates.py                                   # prime/10yr/SOFR vs defaults.py + last snapshot, exits 1 if stale or drifted
     python3 tools/market.py ascension                        # parish employment + demographics
 
 `flood.py` geocodes via the Census geocoder and reads the FEMA NFHL - run it on
 every deal before trusting any insurance number; an SFHA hit means lender-required
 flood insurance the T-12 won't show. `rates.py` automates the CLAUDE.md standing
 instruction to verify WSJ Prime before each deal (FRED public CSV, keyless; uses
-curl -4 because FRED's IPv6 blackholes from some networks). `market.py` uses BLS
+curl -4 because FRED's IPv6 blackholes from some networks). Each successful pull
+appends a dated row to `market-data/rates.jsonl` and diffs the live figures
+against the newest stored row, so a >25bps move in any series is detectable
+across runs; a failed or partial pull stores nothing and prints no substituted
+figure. `market.py` uses BLS
 keyless (~25 queries/day); the ACS section (population/income/rent growth) needs
 the free `CENSUS_API_KEY` from https://api.census.gov/data/key_signup.html and is
 skipped loudly without it.
