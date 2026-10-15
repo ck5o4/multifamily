@@ -697,7 +697,33 @@ FLOOD IS UNVERIFIED AND THAT IS THE POINT ON THIS ONE. CLAUDE.md says ALWAYS run
 
 ORLEANS OVERLAY TO APPLY WHEN THE DATA LANDS (per CLAUDE.md): millage 131.99 via latax.py, insurance $3,000/unit for wind rather than $2,000, 7.5pct vacancy+bad debt, mgmt 8pct EGI, payroll $0 under 20 units, repo defaults 6.75pct / 25yr / 75pct LTV / 1.30 DSCR. Judge on income math - the $40-70K/unit Baton Rouge price-per-unit screen does NOT transfer to New Orleans. And never underwrite STR income as lease income; 70117 is in the part of the city where STR permitting is most contested.
 
-WHAT ANTHONY DOES: open the Crexi alert in his logged-in browser, read the ask + door count, and download anything attached into deal-intake/prieur-4300/.</span></li></ul>
+WHAT ANTHONY DOES: open the Crexi alert in his logged-in browser, read the ask + door count, and download anything attached into deal-intake/prieur-4300/.</span></li>
+<li class=""><b>[YOU]</b> SCREEN 27859 Frindik Lane, Hammond LA 70403 (TANGIPAHOA PARISH) - 8 units, &#x27;100% Leased&#x27;, NO ASKING PRICE in the Crexi alert. Ask the student-housing question FIRST (Hammond = Southeastern Louisiana University; hard exclusion), then pull the ask. Price rungs computed: at $900 rents the 13% floor clears at $403,000 ($50,375/unit); at $1,100 rents, $571,000 ($71,375/unit). <span class="who">— NEW 2026-10-15 PM (email sweep). Crexi saved-search alert 2026-10-15 17:14 UTC, thread 1a1408f59b634064 (was UNLABELED; Deal Flow applied this run). The alert body was read in FULL as plaintext: it carries the address, &quot;8-unit Multifamily Investment&quot; and &quot;100% Leased&quot; and NOTHING else - no asking price, no broker name, no unit mix, no SF, no rents. Price is the one missing fact that decides this.
+
+GEOGRAPHY: Hammond is Tangipahoa Parish, which is IN the buy box. Inland, so the $2,000/unit insurance assumption applies, not the $3,000/unit NOLA wind overlay, and Tangipahoa millage is 100.00 (latax.py) against EBR 108.80 - the lowest-tax parish in the box. Not a geography skip.
+
+SIZE: 8 doors is AT the third-party-management threshold CLAUDE.md names (~8 units), not under it. This is the first alert since 2026-10-09 that is not a 2-4 door concentration problem. &quot;100% Leased&quot; is a real positive at screen stage and also the thing most likely to be stale or defined generously - verify against a rent roll, not the headline.
+
+THE HARD GATE, ASKED FIRST: Hammond is the home of Southeastern Louisiana University, and CLAUDE.md&#x27;s exclusion on student housing is absolute - &quot;NO student housing, ever&quot;, no profit case overrides it. The alert gives no clue which way this cuts, and this run has NO data on Frindik Lane&#x27;s distance from campus or on the tenant profile (Crexi property page is unreachable from scheduled runs - see network-policy). So do not screen the numbers first. Ask the tenant-profile question first, because a bad answer ends the deal regardless of price. A &quot;100% leased&quot; 8-unit in Hammond is exactly the profile that is student-leased, and also exactly the profile that is workforce-leased - the headline cannot distinguish them.
+
+PRICE RUNGS (computed this run so the ask can be judged the moment he reads it). tools/pymodel.py at repo defaults: 6.75% / 25-yr am / 75% LTV / 1.30 DSCR floor / 7% vacancy / 0.5% bad debt / mgmt 8% of EGI / payroll $0 under 20 units / capex $250/unit / insurance $2,000/unit inland / cost of sale 3% / 5-yr hold, Tangipahoa taxes via latax.py reassessed at EVERY trial price, exit cap re-derived as that price&#x27;s going-in cap + 50bps. Unit type assumed 2BR/1BA 850 SF. RENTS ARE AN ASSUMED BAND, NOT COMPS - there is no RentCast record for Hammond in deal-intake/_rentcast/ and no snapshot has succeeded since 2026-08-17 (marketwatch-no-structured-rents). Treat the rent column as the input, not the output:
+
+  rent/u/mo | 13% max  | $/unit  | equity   | DSCR | going-in | 16% max  | 22% max
+  $800      | $319,000 | $39,875 | $88,522  | 1.58 | 9.81%    | $296,000 | $258,000
+  $900      | $403,000 | $50,375 | $111,832 | 1.54 | 9.58%    | $374,000 | $326,000
+  $1,000    | $487,000 | $60,875 | $135,142 | 1.52 | 9.44%    | $451,000 | $393,000
+  $1,100    | $571,000 | $71,375 | $158,452 | 1.50 | 9.33%    | $529,000 | $460,000
+  $1,200    | $655,000 | $81,875 | $181,762 | 1.49 | 9.25%    | $607,000 | $527,000
+
+WHAT THE TABLE SAYS: neither of the two usual binding constraints binds here. Equity at the 13% rung runs $89K-$182K against ~$300K available, so CAPITAL DOES NOT BIND even at the top of the band - unusual for this pipeline, and it is purely a function of 8 doors at inland pricing. DSCR runs 1.49-1.58, clear of the 1.30 house floor, so the DSCR FLOOR DOES NOT BIND either. What the deal has to clear is the going-in cap: 9.25-9.81% against 6.75% debt. That is strongly positive leverage, and it is also a demanding cap for a 100%-leased asset - a seller with a full building will price at a far thinner cap than 9.3%, which is the likeliest way this dies.
+
+So the ask is the whole deal: at $900 rents anything over ~$403,000 ($50,375/unit) fails the 13% pursue floor, and at $1,100 rents the ceiling is ~$571,000 ($71,375/unit). Those per-unit figures sit inside the $40-70K/unit Baton Rouge screen, which DOES transfer to Hammond (it is the NOLA screen that does not).
+
+ACTION ORDER, and question 1 gates the rest: (1) tenant profile - is any part of this student-leased to Southeastern Louisiana University? If yes, STOP, it is a hard exclusion and the price rungs are irrelevant; (2) asking price; (3) unit mix, SF and actual in-place rents per unit, with lease start/end dates - &quot;100% leased&quot; means nothing without lease terms; (4) vintage and condition; (5) whether any units are voucher-tenanted - flag Section 8 economics explicitly either way, never silently; (6) broker name (not in the alert body).
+
+Offer-stage gates unchanged: bindable insurance quote, parceltax reconciliation, seller T-12 and rent roll, flood.py (Tangipahoa has real AE exposure along the Tangipahoa River and Ponchatoula Creek; Hammond took 2016 flooding). House DSCR floor 1.30. No deal-intake folder created - nothing to ingest yet.
+
+WHAT ANTHONY DOES: open the Crexi alert in his logged-in browser, read the ask and the broker name off the listing page, and ask the broker the tenant-profile question before anything else. Download anything attached into deal-intake/frindik-27859/.</span></li></ul>
     <div class="rulebar">
       <span>Your capital <b>$300K</b></span>
       <span>Keep in reserve <b>$30–40K</b></span>
@@ -786,7 +812,7 @@ WHAT ANTHONY DOES: open the Crexi alert in his logged-in browser, read the ask +
     <div class="row-deal"><span class="name">Cannon Rd <span class="pill dead">Dead</span></span><span class="why">Needs 12× your capital. Not a maybe.</span></div><div class="row-deal"><span class="name">Covington 2Nd <span class="pill dead">Dead</span></span><span class="why">Ask $1.25M. <b>Works at $907K (13%) / $841K (16%) / $733K (22%).</b> The old &ldquo;needs more cash than you have&rdquo; line was WRONG — that is true at the ask, not in the revive band, where equity is <b>$203–252K</b> of your $300K. Stays dead at the ask; <b>revives on a cut toward ~$900K</b>.</span></div><div class="row-deal"><span class="name">Weber City Mhp <span class="pill dead">Dead</span></span><span class="why">Flood zone kills it at any realistic price.</span></div><div class="row-deal"><span class="name">Hwy42 Mhp <span class="pill dead">Dead</span></span><span class="why">Ask $3.0M. <b>Only at ~$2.4–2.5M with ~$400K carry</b> — and it sits in a real flood zone.</span></div><div class="row-deal"><span class="name">Central City 2Nd <span class="pill dead">Dead</span></span><span class="why">Ask $1.16M. <b>Only near $700K.</b></span></div><div class="row-deal"><span class="name">Mlk 2119 <span class="pill dead">Dead</span></span><span class="why">Ask $490K for <b>2 doors</b> ($245K/unit). Levered IRR <b>-9.8%</b>, 0.62x multiple — it loses money, it does not merely miss the band. DSCR caps the loan at 47% LTV, so equity at ask is <b>$273K = 91% of your capital</b> for two units. <b>Only near $270K.</b></span></div>
   </section>
   <footer>
-    Generated by tools/board.py at commit <code>70b2625</code> on 2026-10-15 ·
+    Generated by tools/board.py at commit <code>6696573</code> on 2026-10-15 ·
     all numbers computed clean ·
     republished to the standing link by the daily scan routine
   </footer>
