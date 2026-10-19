@@ -65,9 +65,20 @@ def latest(series):
     return date, float(value)
 
 
-def read_history(path=HISTORY_PATH):
-    """Every stored snapshot, oldest first. Malformed lines are skipped, not
-    fatal: a corrupt row must not stop today's pull from being recorded."""
+def read_history(path=None):
+    """Every stored snapshot, oldest first. Malformed rows are skipped, not
+    fatal: a corrupt row must not stop today's pull from being recorded.
+
+    Sweep 2026-10-19: "malformed" used to mean only "not JSON". A row that
+    parsed but carried the wrong TYPES got through and then crashed the caller
+    AFTER the live fetch and BEFORE append_snapshot, so one partially written
+    line from a killed run discarded every subsequent pull until a human edited
+    the file - the opposite of what this docstring promises. All five shapes
+    reproduced: rates as a str/list/None raised AttributeError in drift(), and a
+    non-string `observed` raised TypeError in the sort below. The schema is
+    checked here instead, so a poisoned line costs its own row and nothing else.
+    """
+    path = path or HISTORY_PATH
     rows = []
     try:
         with open(path) as fh:
@@ -79,22 +90,34 @@ def read_history(path=HISTORY_PATH):
                     row = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(row, dict) and "observed" in row:
-                    rows.append(row)
+                if not isinstance(row, dict):
+                    continue
+                if not isinstance(row.get("observed"), str):
+                    continue
+                if not isinstance(row.get("rates"), dict):
+                    continue
+                rows.append(row)
     except FileNotFoundError:
         return []
-    rows.sort(key=lambda r: r.get("observed", ""))
+    rows.sort(key=lambda r: r["observed"])
     return rows
 
 
-def last_snapshot(path=HISTORY_PATH):
-    """Newest stored snapshot, or None when there is no history yet."""
+def last_snapshot(path=None, before=None):
+    """Newest stored snapshot, or None when there is no history yet.
+
+    `before` excludes rows stamped on or after that date, which is how main()
+    avoids diffing today against itself (sweep 2026-10-19).
+    """
     rows = read_history(path)
+    if before is not None:
+        rows = [r for r in rows if r["observed"] < before]
     return rows[-1] if rows else None
 
 
-def append_snapshot(row, path=HISTORY_PATH):
+def append_snapshot(row, path=None):
     """Append one snapshot. Called only after ALL series fetched cleanly."""
+    path = path or HISTORY_PATH
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a") as fh:
         fh.write(json.dumps(row, sort_keys=True) + "\n")
@@ -132,7 +155,19 @@ def main():
 
     # Diff against the newest stored row BEFORE appending today's, so the
     # comparison is run-to-run rather than against itself.
-    previous = last_snapshot()
+    # Sweep 2026-10-19: last_snapshot() returned the newest row by date, and
+    # append_snapshot stamps `observed` with TODAY, so the second run of any
+    # day diffed today against today - 0bps on every series, drifted=False,
+    # exit 0, the DRIFT line gone. Reproduced: a stored 10-18 DGS10 of 4.60
+    # against a live 5.00 flagged "+40bps, exit 1" on run 1 and printed nothing
+    # on run 2 with identical data. It also hid slow moves: 20bps/day for five
+    # days (4.60 -> 5.60, +100bps) gave exit codes 1,0,0,0,1. DPRIME has the
+    # `stale` check below as a backstop, but nothing in defaults.py references
+    # DGS10 or SOFR, so for the 10-yr and SOFR this flag is the ONLY detector -
+    # and a 100bps 10-yr move it missed is 278bps of IRR and $41,273 of LP
+    # cash-out on the refi path. Excluding today's own rows fixes it.
+    today = datetime.date.today().isoformat()
+    previous = last_snapshot(before=today)
     print()
     drifted = False
     if previous is None:
@@ -155,7 +190,7 @@ def main():
                   f"{DRIFT_FLAG_BPS:.0f}bps. Review model assumptions.")
 
     append_snapshot({
-        "observed": datetime.date.today().isoformat(),
+        "observed": today,
         "rates": dict(live),
         "series_asof": observed,
         "source": "FRED fredgraph.csv",

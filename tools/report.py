@@ -62,6 +62,13 @@ def dscr_verdict(dscr, minimum):
         return "NO DSCR"
     if minimum is None:
         return ""
+    # Sweep 2026-10-19: compare what the reader is shown, same as irr_verdict
+    # six lines up. `mult()` prints 2dp, so 1.29996 displayed "1.30x" next to
+    # "FAILS lender minimum 1.30" while 1.30004 displayed the identical "1.30x"
+    # next to "binds at lender minimum 1.30". DSCR-bound deals land exactly on
+    # the minimum by construction, so this is the one verdict in the system
+    # guaranteed to sit on its own boundary.
+    dscr = round(dscr, 2)
     if dscr < minimum:
         return f"FAILS lender minimum {minimum:.2f}"
     if dscr < minimum + 0.05:

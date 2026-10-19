@@ -213,9 +213,43 @@ def compute_deal(name):
         "taxes": inputs.get("taxes_annual", 0),
         "mgmt": inputs.get("mgmt_pct", 0.08),
         "noi": r["noi"][1], "cap": r["going_in_cap"], "irr": r["levered_irr"],
+        "gp_irr": r.get("gp_irr"), "lp_irr": r.get("lp_irr"),
+        "wf_neg_years": r.get("waterfall_neg_years") or [],
         "dscr": r["dscr"][1], "equity": r["total_equity"],
         "ladder": ladder, "ladder_beats": ladder_beats, "mc": mc,
     }
+
+
+def gp_share_sub(d):
+    """What the owner's own 10% actually returns, next to the deal's return.
+
+    Sweep 2026-10-19. CLAUDE.md's house rule is his own sentence - "If it can't
+    make me more money by the time I try to sell it, I don't want to do it" -
+    and that is HIS money. The tile printed `levered_irr`, the whole-equity
+    return, which on these deals is not his: every live deal carries lp_pct
+    0.90, an 8% pref and a 70/30 residual (his mother as LP), so on a thin deal
+    the pref consumes the distributions and the GP is left behind. Reproduced
+    deterministically, with waterfall_neg_years EMPTY on all three - so these
+    are quotable, not disclaimed:
+
+        eden   project  9.871%   LP 10.055%   GP  8.384%
+        treme  project  6.565%   LP  7.643%   GP -4.431%   <- page said 6.6%
+        baker  project  2.687%   LP  5.001%   GP  None (never turns positive)
+
+    treme is the deal the record calls the only one that fits his capital with
+    no carry and no partner, and the page showed +6.6% where his own return is
+    -4.4%: an 11.00pp gap across zero. Whether the house-rule PROBABILITY
+    should also be scored on GP IRR is a live question (the MC waterfall
+    disclaims itself on 46% of treme's draws and 98.7% of baker's), so that is
+    left for a decision rather than changed here. Printing his own number
+    beside the deal's costs nothing and is not in doubt.
+    """
+    if d.get("wf_neg_years"):
+        return "your 10% GP share: not quotable (waterfall deficit year)"
+    g = d.get("gp_irr")
+    if g is None:
+        return "your 10% GP share: wiped - never turns positive"
+    return f"your 10% GP share: {g*100:.1f}%"
 
 
 def stat(k, v, sub=""):
@@ -247,7 +281,24 @@ def rung(target, label, lad, lad_beats):
     # recommends. Raising n is still the real fix and is deferred with those
     # numbers; what is fixed here is the board asserting a verdict it cannot
     # have, on the rung Anthony is told is his "strong deal" price.
-    coin_flip = b is not None and abs(b - 0.50) < 0.03
+    # Sweep 2026-10-19: the 10-12 fix above moved the display/verdict split
+    # rather than removing it. The band tested raw `b` while every branch
+    # printed `b*100:.1f`, so the contradiction the comment below says was
+    # fixed at 50.0% reappeared at the two NEW boundaries: b=0.46995 printed
+    # "beats index only 47.0% - FAILS the house rule" and b=0.47005 printed
+    # "beats index 47.0% - too close to call", and at the top edge 53.0% read
+    # either "clears the house rule" or "not a verdict either way" - the same
+    # number, opposite assertions, on a pursue/don't-pursue call. Rounding to
+    # the printed precision BEFORE the test keeps the number and the verdict on
+    # the same side of every boundary, at 47.0, 50.0 and 53.0 alike.
+    # The band is compared in whole tenths of a percent - the precision the row
+    # actually prints - so the test is exact integer arithmetic rather than a
+    # float comparison. abs(0.470 - 0.50) is 0.030000000000000027 in binary
+    # floating point, which would push the inclusive 3pp edge back out of the
+    # band and undo half of this fix.
+    if b is not None:
+        b = round(b, 3)
+    coin_flip = b is not None and abs(round(b * 1000) - 500) <= 30
     if b is None:
         note = ""
     elif coin_flip:
@@ -308,7 +359,7 @@ def render_card(name, deal_rec, d):
       {stat("Vacancy + bad debt", f"{d['vacancy']*100:.1f}%")}
       {stat("Year-1 income (NOI)", money(d['noi']))}
       {stat("Cap rate at ask", f"{d['cap']*100:.2f}%")}
-      {stat("Return at ask", f"{d['irr']*100:.1f}%" if d['irr'] is not None else "n/a")}
+      {stat("Return at ask (whole deal)", f"{d['irr']*100:.1f}%" if d['irr'] is not None else "n/a", gp_share_sub(d))}
       {stat("Cash needed at ask", money(d['equity']))}
       {stat("Debt coverage", f"{d['dscr']:.2f}x", "bank wants 1.25+")}
       {stat("Insurance", f"${d['insurance_u']:,.0f}/unit/yr")}

@@ -280,6 +280,22 @@ def run(inputs: dict) -> dict:
 
     # --- Renovation budget ---
     reno_budget = reno_units * reno_cost_per_unit
+    # Sweep 2026-10-19: reno_units > 0 with a pace of 0/yr charges the whole
+    # budget at close and renovates nothing - _reno_units_cumulative returns 0.0
+    # for a zero pace - so the run prints a confident IRR for a deal that spent
+    # the money and captured no premium. Reproduced on the master workbook demo
+    # (8 units x $15,000 = $120,000 spent, 0 renovated, levered IRR -3.32%
+    # against 10.40% at a 4/yr pace; workbook and engine agree to 0bps), and the
+    # workbook's own "Renovation finishes inside the hold period" check still
+    # reads OK because Years to Complete collapses to 0 through its IFERROR.
+    # Incoherent input, but it must not pass silently.
+    if reno_units > 0 and reno_units_per_year == 0:
+        _warn_once("reno_zero_pace",
+                   f"WARNING [run]: {reno_units:g} unit(s) to renovate at a "
+                   f"pace of 0 units/year - the full ${reno_budget:,.0f} budget "
+                   f"is charged at close and NO unit is ever renovated, so no "
+                   f"rent premium is captured. Set reno_units_per_year, or set "
+                   f"reno_units to 0.")
 
     # --- Year 1 NOI for loan sizing ---
     # Must compute year-1 NOI first to size the loan.
@@ -919,6 +935,81 @@ def _merge_defaults(inputs):
             f"exit_cap is {_ec}: a zero or negative exit cap implies an infinite "
             f"or negative sale price. Leave it unset to derive going-in + 50bps, "
             f"or give a positive cap.")
+
+    # Sweep 2026-10-19. exit_cap was the only input checked for sanity, so a
+    # cluster of neighbouring inputs each produced a confident, unwarned,
+    # materially wrong answer. All reproduced on baker-trails (12 units):
+    #
+    #   vacancy = -0.05         NOI $48,753 -> $63,061, loan flips LTV-bound,
+    #                           IRR 2.6869% -> 21.2131% (+18.53pp), no warning.
+    #   reno_units = 30 on 12   budget $360,000 charged, sale $745,777 ->
+    #                           $1,454,919, IRR -> 12.3200% (+9.63pp): 18
+    #                           renovations of units that do not exist, nearly
+    #                           clearing the 13% pursue floor. The WORKBOOK
+    #                           catches this at Checks!B12 and intake exits; the
+    #                           twin had no equivalent.
+    #   reno_start_year = -3    back-dates the programme to before close; reads
+    #                           as complete in year 1, IRR +1.56pp. (The
+    #                           workbook shares this one - Checks!B13 computes
+    #                           -3 + 2 - 1 <= 5 and says OK - so Inputs!F36 is
+    #                           flagged for the human workbook session.)
+    #   exit_cap = 0.0001       sale price $522,044,007, IRR 337.7706%, equity
+    #                           multiple 1595x, zero warnings. Sign was checked,
+    #                           magnitude was not.
+    #   hold_years = 0 / 5.5    KeyError / TypeError raised from inside
+    #   min_dscr = 0            ZeroDivisionError. Safe on their own, but
+    #                           monte_carlo swallows per-draw exceptions as
+    #                           excluded draws, so these truncate the tail
+    #                           instead of stopping the run.
+    #
+    # These are refusals, not warnings: there is no reading of a negative
+    # vacancy or a 30-unit renovation of a 12-unit building that the caller
+    # meant, and a silent plausible number is the worst outcome of the three.
+    _vac = inputs.get("vacancy", defaults.get("vacancy"))
+    if _vac is not None and not (0.0 <= _vac < 1.0):
+        raise ValueError(
+            f"vacancy is {_vac}: must be a fraction in [0, 1). A negative "
+            f"vacancy invents income (baker-trails at -5% gains 18.5pp of IRR "
+            f"with no warning); 1.0 or more means no occupied unit.")
+
+    _ec2 = inputs.get("exit_cap")
+    if _ec2 is not None and not (0.01 <= _ec2 <= 0.30):
+        raise ValueError(
+            f"exit_cap is {_ec2}: outside the plausible 1%-30% range. "
+            f"0.0001 prices this property at $522,044,007 and reports a "
+            f"337.77% IRR. Give a real cap or leave it unset to derive "
+            f"going-in + 50bps.")
+
+    _md = inputs.get("min_dscr", defaults.get("min_dscr"))
+    if _md is not None and _md <= 0:
+        raise ValueError(
+            f"min_dscr is {_md}: the DSCR loan constraint divides by it. "
+            f"House standard is 1.30; banks require 1.25.")
+
+    _hy = inputs.get("hold_years", defaults.get("hold_years"))
+    if _hy is not None and (int(_hy) != _hy or not (1 <= int(_hy) <= 10)):
+        raise ValueError(
+            f"hold_years is {_hy}: must be a whole number of years from 1 to "
+            f"10. The workbook has columns only to year 11 and restricts hold "
+            f"to 1-10 at Checks!B4, so a longer or fractional hold makes the "
+            f"twin and the workbook answer different questions.")
+
+    _ru = inputs.get("reno_units", defaults.get("reno_units")) or 0
+    _units = sum(g["units"] for g in inputs["unit_mix"]) if inputs.get("unit_mix") else None
+    if _units is not None and _ru > _units:
+        raise ValueError(
+            f"reno_units is {_ru:g} but the property has {_units:g} units. "
+            f"The budget is charged per renovated unit and the rent premium is "
+            f"credited per renovated unit, so this both spends money and "
+            f"invents income on units that do not exist. The workbook refuses "
+            f"it at Checks!B12.")
+
+    _rsy = inputs.get("reno_start_year", defaults.get("reno_start_year"))
+    if _ru > 0 and _rsy is not None and _rsy < 1:
+        raise ValueError(
+            f"reno_start_year is {_rsy}: renovations cannot begin before year "
+            f"1. A back-dated start reads as already complete in year 1 and "
+            f"credits the full rent premium from the first year of the hold.")
 
     allowed = set(defaults) | {"price", "unit_mix", "location", "commercial_share"}
     unknown = sorted(set(inputs) - allowed)

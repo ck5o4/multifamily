@@ -1168,6 +1168,14 @@ def main():
     test_an_orleans_neighbourhood_is_not_read_as_a_baton_rouge_town()
     test_board_does_not_assert_a_verdict_inside_the_coin_flip_band()
     test_rates_persists_a_baseline_and_diffs_against_it()
+    test_a_renovation_with_no_pace_does_not_pass_silently()
+    test_a_town_inside_a_street_name_is_never_the_locality()
+    test_the_board_number_and_its_verdict_agree_at_every_boundary()
+    test_the_dscr_verdict_matches_the_dscr_it_prints()
+    test_rates_drift_survives_a_second_run_and_a_poisoned_row()
+    test_the_board_shows_his_own_return_not_only_the_deals()
+    test_the_engine_refuses_inputs_that_invent_money()
+    test_ingestion_does_not_drop_rows_or_zeros_in_silence()
     if FAILURES:
         print(f"\nRESULT: {len(FAILURES)} FAILED: {FAILURES}")
         sys.exit(1)
@@ -2791,6 +2799,522 @@ def test_rates_persists_a_baseline_and_diffs_against_it():
     check("rates: a failed fetch still raises instead of falling back",
           "SystemExit" in fetch
           and "last_snapshot" not in fetch and "read_history" not in fetch)
+
+
+def test_a_renovation_with_no_pace_does_not_pass_silently():
+    """Sweep 2026-10-19. `reno_units > 0` with `reno_units_per_year == 0` spends
+    the entire renovation budget at close and renovates NOTHING:
+    _reno_units_cumulative (pymodel.py:623) short-circuits to 0.0 on a zero
+    pace, so no unit is ever turned and no rent premium is ever captured.
+
+    Reproduced on the master acquisition workbook's own demo, recalculated
+    through LibreOffice Calc, 8 units at $15,000 = $120,000 of budget:
+
+        pace 4/yr   levered IRR  10.40%   (workbook and engine agree to 0bps)
+        pace 0/yr   levered IRR  -3.32%   (workbook and engine agree to 0bps)
+
+    The workbook cannot catch it either - its "Renovation finishes inside the
+    hold period" check reads OK because Years to Complete,
+    IFERROR(ROUNDUP(F31/F34,0),0), collapses to 0 on the divide-by-zero. So a
+    mis-specified pace reads as "the value-add does not work" rather than as bad
+    input. The money is still charged, so the IRR is not wrong - it is
+    unexplained, and that is what this pins.
+    """
+    import io
+    import contextlib
+
+    inputs = dict(base_inputs(), reno_units=8, reno_cost_per_unit=15_000,
+                  reno_premium_month=150, reno_units_per_year=0,
+                  exit_cap=None)
+
+    pymodel._reset_warnings()
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        r = pymodel.run(dict(inputs))
+    msg = err.getvalue()
+    check("reno: a 0/yr pace with units to renovate warns",
+          "0 units/year" in msg, f"stderr was {msg!r}")
+    check("reno: the warning names the budget that is spent for nothing",
+          "120,000" in msg, f"stderr was {msg!r}")
+
+    # And the condition it describes is real: nothing gets renovated.
+    check("reno: a 0/yr pace renovates no units",
+          pymodel._reno_units_cumulative(5, 8, 0, 1) == 0.0,
+          f"got {pymodel._reno_units_cumulative(5, 8, 0, 1)}")
+
+    # A real pace must stay silent and must actually renovate.
+    pymodel._reset_warnings()
+    err2 = io.StringIO()
+    with contextlib.redirect_stderr(err2):
+        pymodel.run(dict(inputs, reno_units_per_year=4))
+    check("reno: a real pace does not warn",
+          "0 units/year" not in err2.getvalue(), err2.getvalue())
+    check("reno: a 4/yr pace renovates all 8 units by year 2",
+          pymodel._reno_units_cumulative(2, 8, 4, 1) == 8.0,
+          f"got {pymodel._reno_units_cumulative(2, 8, 4, 1)}")
+
+    # Zero units to renovate is not a mis-specification; it must stay silent.
+    pymodel._reset_warnings()
+    err3 = io.StringIO()
+    with contextlib.redirect_stderr(err3):
+        pymodel.run(dict(inputs, reno_units=0, reno_cost_per_unit=0,
+                         reno_premium_month=0))
+    check("reno: no renovation at all does not warn",
+          "0 units/year" not in err3.getvalue(), err3.getvalue())
+
+
+def test_a_town_inside_a_street_name_is_never_the_locality():
+    """Sweep 2026-10-19. 10-12's street-suffix demotion looked only at the token
+    immediately after the match, which misses the head of a longer town name,
+    and it only RANKED candidates rather than disqualifying them.
+
+    Three defects, all reproduced, all asserting a parish as fact:
+
+      'Gretna - 1 Central City Rd'  -> east baton rouge   (want jefferson)
+          'central' is followed by 'city', not a suffix, so it scored clean and
+          beat Gretna on end_index. On treme-gov-nicholls the same Orleans->EBR
+          slip moves the 13% rung $714,000 -> $817,000, $103,000 overstated.
+      '100 Harvey Ln'               -> jefferson          (want None)
+          every candidate sat inside a street name, and the best demoted one was
+          still returned - with the $3,000/unit coastal insurance basis.
+          '100 Baker Rd & Harvey Ln' -> jefferson vs
+          '100 Harvey Ln & Baker Rd' -> east baton rouge: $132,000 of clearing
+          price from token order alone.
+      '1234 Jefferson Davis Pkwy, New Orleans, LA 70119' -> None (want orleans)
+          the confusable-parish guard bailed before any town matching, so a real
+          Orleans address froze taxes across the solve and put the 13% rung at
+          $748,000 against a correct $522,000.
+    """
+    import latax
+
+    # 1. The head of a longer town name is still part of the street name.
+    for loc, want in (("Gretna - 1 Central City Rd", "jefferson"),
+                      ("Chalmette - 1 Central City Rd", "st. bernard"),
+                      ("Metairie - 100 Central City Rd", "jefferson")):
+        got, why = latax.infer_parish(loc)
+        check(f"locality: {loc!r} -> {want}", got == want, f"got {got!r} ({why})")
+
+    # 2. All candidates demoted means the location is unresolved, not a guess.
+    for loc in ("100 Harvey Ln", "1234 Harvey Ln, Apt 3",
+                "100 Baker Rd & Harvey Ln", "100 Harvey Ln & Baker Rd"):
+        got, why = latax.infer_parish(loc)
+        check(f"locality: {loc!r} resolves to nothing rather than guessing",
+              got is None, f"got {got!r} ({why})")
+    # ... and the answer no longer depends on which street was typed first.
+    a, _ = latax.infer_parish("100 Baker Rd & Harvey Ln")
+    b, _ = latax.infer_parish("100 Harvey Ln & Baker Rd")
+    check("locality: swapping two street names cannot change the parish",
+          a == b, f"got {a!r} vs {b!r}")
+
+    # 3. A confusable parish in a STREET name must not veto the real city.
+    for loc, want in (("1234 Jefferson Davis Pkwy, New Orleans, LA 70119",
+                       "orleans"),
+                      ("3100 Jefferson Davis Pkwy, New Orleans", "orleans")):
+        got, why = latax.infer_parish(loc)
+        check(f"locality: {loc!r} -> {want}", got == want, f"got {got!r} ({why})")
+    # But a genuine Jefferson Davis Parish location still resolves to nothing.
+    got, _ = latax.infer_parish("Jennings, Jefferson Davis, LA")
+    check("locality: a real Jefferson Davis Parish town stays unresolved",
+          got is None, f"got {got!r}")
+
+    # Every case the earlier passes pinned must still hold.
+    for loc, want in (("1 Central City Rd, Baker, LA", "east baton rouge"),
+                      ("100 Baton Rouge Ave, Gonzales, LA", "ascension"),
+                      ("Baton Rouge - 5555 Jefferson Hwy", "east baton rouge"),
+                      ("5555 Jefferson Hwy, Baton Rouge", "east baton rouge"),
+                      ("Central Ave, Metairie", "jefferson"),
+                      ("1 Gretna Blvd, Hammond, LA", "tangipahoa"),
+                      ("Chalmette, St. Bernard Parish", "st. bernard"),
+                      ("central", "east baton rouge"),
+                      ("new orleans", "orleans")):
+        got, why = latax.infer_parish(loc)
+        check(f"locality: {loc!r} still -> {want}", got == want,
+              f"got {got!r} ({why})")
+    check("locality: a non-Louisiana state still wins",
+          latax.infer_parish("Jefferson, TX")[0] is None)
+
+
+def test_the_board_number_and_its_verdict_agree_at_every_boundary():
+    """Sweep 2026-10-19. 10-12 added a +/-3pp coin-flip band tested on raw `b`
+    while every branch prints `b*100:.1f`, so the display/verdict split that
+    rung()'s own comment says was fixed at 50.0% simply moved to the new edges:
+
+        b=0.46995 -> "beats index only 47.0% - FAILS the house rule"
+        b=0.47005 -> "beats index 47.0% - too close to call"
+        b=0.52995 -> "beats index 53.0% - too close to call"
+        b=0.53005 -> "beats index 53.0% - clears the house rule"
+
+    Same printed number, opposite assertions, on a pursue/don't-pursue call.
+    """
+    import re
+    import board
+
+    def verdict(out):
+        txt = re.sub("<[^>]+>", "", out)
+        for phrase in ("clears the house rule", "FAILS the house",
+                       "too close to call"):
+            if phrase in txt:
+                return phrase
+        return "none"
+
+    for lo, hi in ((0.46995, 0.47005), (0.52995, 0.53005),
+                   (0.49995, 0.50005)):
+        out_lo = board.rung(0.16, "s", {0.16: 1_443_000}, {0.16: lo})
+        out_hi = board.rung(0.16, "s", {0.16: 1_443_000}, {0.16: hi})
+        shown_lo = re.search(r"(\d+\.\d)%", re.sub("<[^>]+>", "", out_lo))
+        shown_hi = re.search(r"(\d+\.\d)%", re.sub("<[^>]+>", "", out_hi))
+        if shown_lo and shown_hi and shown_lo.group(1) == shown_hi.group(1):
+            check(f"boundary: {shown_lo.group(1)}% cannot carry two verdicts",
+                  verdict(out_lo) == verdict(out_hi),
+                  f"{lo}->{verdict(out_lo)!r} vs {hi}->{verdict(out_hi)!r}")
+
+    # The three verdicts must still be reachable and correctly placed.
+    cases = [(0.0, "FAILS the house"), (0.42, "FAILS the house"),
+             (0.469, "FAILS the house"), (0.48, "too close to call"),
+             (0.50, "too close to call"), (0.52, "too close to call"),
+             (0.54, "clears the house rule"), (1.0, "clears the house rule")]
+    for b, want in cases:
+        out = board.rung(0.16, "s", {0.16: 1_443_000}, {0.16: b})
+        check(f"boundary: b={b} reads {want!r}", verdict(out) == want,
+              f"got {verdict(out)!r}")
+    out_none = board.rung(0.16, "s", {0.16: 1_443_000}, {0.16: None})
+    check("boundary: an unscored rung still asserts nothing",
+          verdict(out_none) == "none")
+
+
+def test_the_dscr_verdict_matches_the_dscr_it_prints():
+    """Sweep 2026-10-19. report.mult() prints 2dp but dscr_verdict compared the
+    raw float, so 1.29996 and 1.30004 both displayed "1.30x" while carrying
+    opposite verdicts ("FAILS lender minimum 1.30" vs "binds at lender minimum
+    1.30"). irr_verdict six lines above already rounds for exactly this reason.
+    DSCR-bound deals land on the minimum by construction, so this is the one
+    verdict guaranteed to sit on its own boundary.
+    """
+    import report
+
+    for d in (1.29996, 1.30004):
+        shown = report.mult(d)
+        check(f"dscr: {d} displays as {shown}", shown == "1.30x", shown)
+    check("dscr: the two sides of 1.30 that print the same cannot disagree",
+          report.dscr_verdict(1.29996, 1.30) == report.dscr_verdict(1.30004, 1.30),
+          f"{report.dscr_verdict(1.29996, 1.30)!r} vs "
+          f"{report.dscr_verdict(1.30004, 1.30)!r}")
+    # A genuine miss and a genuine clear must still read correctly.
+    check("dscr: 1.24 still fails a 1.30 minimum",
+          "FAILS" in report.dscr_verdict(1.24, 1.30))
+    check("dscr: 1.31 still binds at a 1.30 minimum",
+          "binds" in report.dscr_verdict(1.31, 1.30))
+    check("dscr: 1.40 still clears a 1.30 minimum",
+          "clears" in report.dscr_verdict(1.40, 1.30))
+    check("dscr: a missing DSCR is still reported as missing",
+          report.dscr_verdict(None, 1.30) == "NO DSCR")
+
+
+def test_rates_drift_survives_a_second_run_and_a_poisoned_row():
+    """Sweep 2026-10-19, two defects in the persistence added on 10-12.
+
+    1. append_snapshot stamps `observed` with TODAY and last_snapshot returned
+       the newest row by date, so run 2 of any day diffed today against itself:
+       0bps on every series, no DRIFT line, exit 0. A stored 10-18 DGS10 of
+       4.60 against a live 5.00 flagged +40bps on run 1 and nothing on run 2
+       with identical data; 20bps/day for five days (4.60 -> 5.60, +100bps) gave
+       exit codes 1,0,0,0,1. Nothing in defaults.py references DGS10 or SOFR, so
+       for those two series this flag is the only detector there is.
+    2. read_history skipped only non-JSON lines. A row that parsed with the
+       wrong TYPES crashed the caller after the live fetch and before the
+       append, so one half-written line discarded every later pull.
+    """
+    import json
+    import os
+    import tempfile
+
+    import rates
+
+    today = "2026-10-19"
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "rates.jsonl")
+        rates.append_snapshot({"observed": "2026-10-18",
+                               "rates": {"DPRIME": 6.75, "DGS10": 4.60,
+                                         "SOFR": 3.62}}, path)
+        # Today's own pull lands in the history...
+        rates.append_snapshot({"observed": today,
+                               "rates": {"DPRIME": 6.75, "DGS10": 5.00,
+                                         "SOFR": 3.62}}, path)
+        # ...and must not become its own baseline on the next run of the day.
+        base = rates.last_snapshot(path, before=today)
+        check("rates: a second run of the day diffs against a PREVIOUS day",
+              (base or {}).get("observed") == "2026-10-18",
+              f"got {(base or {}).get('observed')!r}")
+        live = {"DPRIME": 6.75, "DGS10": 5.00, "SOFR": 3.62}
+        d = {x[0]: x for x in rates.drift(base, live)}
+        check("rates: the 40bps 10-yr move is still visible on run 2",
+              abs(d["DGS10"][3] - 40.0) < 1e-6, str(d["DGS10"]))
+        check("rates: and it still exceeds the flag threshold",
+              abs(d["DGS10"][3]) > rates.DRIFT_FLAG_BPS)
+        # Without the exclusion the baseline is today itself and the move is 0.
+        self_base = rates.last_snapshot(path)
+        d_self = {x[0]: x for x in rates.drift(self_base, live)}
+        check("rates: diffing against today's own row is what used to hide it",
+              abs(d_self["DGS10"][3]) < 1e-9, str(d_self["DGS10"]))
+
+        # Rows that parse but carry the wrong types cost their own row only.
+        good = len(rates.read_history(path))
+        with open(path, "a") as fh:
+            for bad in ('{"observed":"2026-10-20","rates":"6.75"}',
+                        '{"observed":"2026-10-20","rates":[6.75]}',
+                        '{"observed":"2026-10-20","rates":null}',
+                        '{"observed":20261018,"rates":{"DPRIME":6.75}}',
+                        '{"observed":null,"rates":{"DPRIME":6.75}}',
+                        '{not json at all'):
+                fh.write(bad + "\n")
+        check("rates: schema-corrupt rows are skipped, not fatal",
+              len(rates.read_history(path)) == good,
+              f"got {len(rates.read_history(path))} want {good}")
+        # The whole point: a poisoned file must not stop a diff from running.
+        base2 = rates.last_snapshot(path, before=today)
+        check("rates: a poisoned file still yields the real baseline",
+              (base2 or {}).get("observed") == "2026-10-18",
+              f"got {(base2 or {}).get('observed')!r}")
+
+    # HISTORY_PATH was bound as a default argument, so repointing the module
+    # global was silently ignored and writes landed in the repo (an auditor put
+    # 9 fabricated rows into market-data/rates.jsonl this way before noticing).
+    import inspect
+    for fn in (rates.read_history, rates.last_snapshot, rates.append_snapshot):
+        sig = inspect.signature(fn)
+        check(f"rates: {fn.__name__} does not freeze HISTORY_PATH at import",
+              sig.parameters["path"].default is None,
+              f"default is {sig.parameters['path'].default!r}")
+    with tempfile.TemporaryDirectory() as tmp:
+        moved = os.path.join(tmp, "moved.jsonl")
+        orig = rates.HISTORY_PATH
+        try:
+            rates.HISTORY_PATH = moved
+            rates.append_snapshot({"observed": "2026-01-01", "rates": {}})
+            check("rates: repointing HISTORY_PATH actually moves the writes",
+                  os.path.exists(moved) and not os.path.exists(orig),
+                  f"moved={os.path.exists(moved)} repo={os.path.exists(orig)}")
+        finally:
+            rates.HISTORY_PATH = orig
+
+
+def test_the_board_shows_his_own_return_not_only_the_deals():
+    """Sweep 2026-10-19. The "Return at ask" tile printed `levered_irr`, the
+    whole-equity return, while CLAUDE.md's house rule is his own sentence about
+    HIS money. Every live deal carries lp_pct 0.90, an 8% pref and a 70/30
+    residual, so on a thin deal the pref consumes the distributions:
+
+        treme  project +6.565%   GP -4.431%   (the page showed 6.6%)
+        baker  project +2.687%   GP None - equity never turns positive
+        eden   project +9.871%   GP +8.384%
+
+    waterfall_neg_years is EMPTY on all three deterministic runs, so these are
+    quotable rather than disclaimed. treme is the deal the record calls the only
+    one that fits his capital with no carry and no partner.
+    """
+    import board
+
+    out = board.gp_share_sub({"gp_irr": -0.044309, "wf_neg_years": []})
+    check("gp: a negative GP return is shown, not hidden behind the project IRR",
+          "-4.4%" in out, out)
+    out_none = board.gp_share_sub({"gp_irr": None, "wf_neg_years": []})
+    check("gp: a wiped GP position says so rather than printing n/a",
+          "wiped" in out_none, out_none)
+    out_pos = board.gp_share_sub({"gp_irr": 0.08384, "wf_neg_years": []})
+    check("gp: a positive GP return prints its own figure",
+          "8.4%" in out_pos, out_pos)
+    # A deficit year makes the split invalid; the tile must not quote it.
+    out_bad = board.gp_share_sub({"gp_irr": 0.25, "wf_neg_years": [3]})
+    check("gp: a waterfall deficit year is not quoted as a GP return",
+          "not quotable" in out_bad and "25" not in out_bad, out_bad)
+
+    # And the engine really does return a GP figure below the project figure on
+    # the live deals - this is the condition the tile exists to surface.
+    for deal, want_gap in (("treme-gov-nicholls", True),
+                           ("eden-church-mhp", True)):
+        pymodel._reset_warnings()
+        r = pymodel.run(dict(pymodel._load_deal(deal)))
+        check(f"gp: {deal} deterministic waterfall is valid (quotable)",
+              not r.get("waterfall_neg_years"),
+              f"neg_years={r.get('waterfall_neg_years')}")
+        check(f"gp: {deal} GP return is below the whole-deal return",
+              (r.get("gp_irr") is None or r["gp_irr"] < r["levered_irr"]),
+              f"gp={r.get('gp_irr')} project={r['levered_irr']}")
+
+
+def test_the_engine_refuses_inputs_that_invent_money():
+    """Sweep 2026-10-19. `exit_cap <= 0` was the only sanity check, so a cluster
+    of neighbouring inputs each produced a confident, unwarned, materially wrong
+    answer. All reproduced on baker-trails (12 units) before the fix:
+
+        vacancy -0.05        IRR  2.6869% -> 21.2131%  (+18.53pp), no warning
+        reno_units 30 / 12   IRR  2.6869% -> 12.3200%  (+9.63pp), $360,000 of
+                             budget and 18 renovations of units that do not
+                             exist - nearly clearing the 13% pursue floor
+        reno_start_year -3   IRR  9.8986% -> 11.4632%  (+1.56pp)
+        exit_cap 0.0001      sale $522,044,007, IRR 337.7706%, EM 1595x
+        hold_years 0 / 5.5   KeyError / TypeError
+        min_dscr 0           ZeroDivisionError
+
+    The last three were raised from inside monte_carlo's per-draw try/except as
+    *excluded draws*, which truncates the tail rather than stopping the run -
+    so they were worse than a crash, not better. The workbook already refused
+    the reno-unit case at Checks!B12; the Python twin did not.
+    """
+    import pymodel as pm
+
+    def refuses(label, **over):
+        try:
+            pm.run({**base_inputs(), "exit_cap": None, **over})
+        except ValueError as e:
+            check(f"refuse: {label}", True)
+            return str(e)
+        except Exception as e:
+            check(f"refuse: {label} (raised {type(e).__name__}, want ValueError)",
+                  False, str(e)[:120])
+            return ""
+        check(f"refuse: {label}", False, "no exception - the run was accepted")
+        return ""
+
+    msg = refuses("a negative vacancy", vacancy=-0.05)
+    check("refuse: the vacancy message says what the range is",
+          "[0, 1)" in msg, msg[:140])
+    refuses("a vacancy of 1.0 (no occupied unit)", vacancy=1.0)
+
+    units = sum(g["units"] for g in base_inputs()["unit_mix"])
+    msg = refuses(f"{units + 18:g} renovations on a {units:g}-unit property",
+                  reno_units=units + 18, reno_cost_per_unit=12_000,
+                  reno_premium_month=150, reno_units_per_year=6)
+    check("refuse: the reno message names the property's real unit count",
+          f"{units:g} units" in msg, msg[:160])
+
+    refuses("a renovation back-dated before close", reno_units=4,
+            reno_cost_per_unit=12_000, reno_premium_month=150,
+            reno_units_per_year=2, reno_start_year=-3)
+    refuses("a near-zero exit cap", exit_cap=0.0001)
+    refuses("an absurd exit cap", exit_cap=0.95)
+    refuses("a zero min_dscr", min_dscr=0)
+    refuses("a zero hold", hold_years=0)
+    refuses("a fractional hold", hold_years=5.5)
+    refuses("a hold past the workbook's last column", hold_years=15)
+
+    # The legitimate neighbours of every bound above must still run.
+    for label, over in (("vacancy 0%", {"vacancy": 0.0}),
+                        ("vacancy 35%", {"vacancy": 0.35}),
+                        ("the full property renovated",
+                         {"reno_units": units, "reno_cost_per_unit": 12_000,
+                          "reno_premium_month": 150, "reno_units_per_year": 6}),
+                        ("reno starting in year 1",
+                         {"reno_units": 4, "reno_cost_per_unit": 12_000,
+                          "reno_premium_month": 150, "reno_units_per_year": 2,
+                          "reno_start_year": 1}),
+                        ("a 1-year hold", {"hold_years": 1}),
+                        ("a 10-year hold", {"hold_years": 10}),
+                        ("exit cap 1%", {"exit_cap": 0.01}),
+                        ("exit cap 30%", {"exit_cap": 0.30}),
+                        ("the house DSCR", {"min_dscr": 1.30})):
+        try:
+            r = pm.run({**base_inputs(), "exit_cap": None, **over})
+            check(f"allow: {label} still runs", r.get("levered_irr") is not None
+                  or r.get("noi") is not None)
+        except Exception as e:
+            check(f"allow: {label} still runs", False,
+                  f"{type(e).__name__}: {e}")
+
+    # And every live deal must still pass its own validation unchanged.
+    for deal in ("eden-church-mhp", "treme-gov-nicholls", "baker-trails"):
+        try:
+            pm.run(dict(pm._load_deal(deal)))
+            check(f"allow: {deal} runs as carried", True)
+        except Exception as e:
+            check(f"allow: {deal} runs as carried", False,
+                  f"{type(e).__name__}: {e}")
+
+
+def test_ingestion_does_not_drop_rows_or_zeros_in_silence():
+    """Sweep 2026-10-19, three ingestion paths that produced a confident wrong
+    number with no flag. tools/README.md promises "Nothing is silently
+    dropped"; all three broke that promise, and all three were workbook-
+    verified by writing through safe_writer into a copy of the master and
+    recalculating.
+
+    1. A rent outside $200-$20,000 dropped the row with NO note. A 30-pad park
+       with 8 pads on legacy $185 lot rents parsed as 22 units: equity $622,648
+       against a true $509,838 ($112,810 overstated), price-per-unit $40,909
+       against $30,000. Sub-$200 pad rents are routine in rural Louisiana parks
+       and MHP is the stated #1 target class.
+    2. A count cell that was present but unparseable silently counted as 1
+       unit. "# of Units" of 24 then blank parsed as 25 units instead of 36;
+       "24*" parsed as 13. Equity overstated $953,738, IRR off 8.76 points,
+       zero notes either time.
+    3. A T-12 line parsing to 0 was written as a real $0 expense AND marked as
+       taken from the deal's own documents, so defaults.derive never fired -
+       and compare_to_benchmarks gated its deviation test on `pu > 0`, so the
+       most extreme value possible printed a blank deviation and a blank flag.
+       On a 12-unit Gretna deal at $950,000: NOI $92,546 vs $56,546, going-in
+       cap 9.74% vs 5.95%, equity understated $185,991, levered IRR +14.97% vs
+       +1.45% - a 13.52-point swing across the 13% pursue floor, with 0 formula
+       errors and 12/12 checks OK.
+    """
+    import os
+    import tempfile
+
+    import cellmap
+    import parsers
+
+    with tempfile.TemporaryDirectory() as tmp:
+        low = os.path.join(tmp, "roll_lowrent.csv")
+        with open(low, "w") as fh:
+            fh.write("Unit,Unit Type,Rent\n1,3BR/2BA,185\n2,3BR/2BA,185\n"
+                     "3,3BR/2BA,425\n4,3BR/2BA,425\n")
+        groups, notes = parsers.parse_rent_roll(low)[:2]
+        units = sum(g["units"] for g in groups)
+        check("ingest: an out-of-range rent row is still excluded from the count",
+              units == 2, f"got {units}")
+        dropped = [n for n in notes if "DROPPED" in n]
+        check("ingest: and the drop is reported rather than silent",
+              len(dropped) == 1, f"notes were {notes}")
+        check("ingest: the drop note names the count and the bounds",
+              "2 row(s)" in dropped[0] and "$200" in dropped[0], dropped[0])
+
+        bad = os.path.join(tmp, "roll_badcount.csv")
+        with open(bad, "w") as fh:
+            fh.write("Unit Type,# of Units,Rent\n2BR/1BA,24,850\n"
+                     "1BR/1BA,24*,700\n3BR/2BA,,950\n")
+        groups2, notes2 = parsers.parse_rent_roll(bad)[:2]
+        check("ingest: an unparseable count cell is reported",
+              any("UNPARSEABLE count" in n for n in notes2), f"notes {notes2}")
+        check("ingest: a blank count cell is reported",
+              any("BLANK count" in n for n in notes2), f"notes {notes2}")
+        check("ingest: the unparseable-count note names the offending value",
+              any("'24*'" in n for n in notes2), f"notes {notes2}")
+
+    # A zero or negative expense line must carry a flag, not a blank.
+    bm = {k: v for k, v in cellmap.BENCHMARKS.items()
+          if k in ("insurance", "utilities", "rm")}
+    rows = parsers.compare_to_benchmarks(
+        {"insurance": {"annual": 0.0}, "utilities": {"annual": -600.0},
+         "rm": {"annual": 6180.0}}, 12, bm)
+    by = {r["key"]: r for r in rows}
+    check("ingest: a $0 expense line is flagged ZERO, not left blank",
+          by["insurance"]["flag"] == "ZERO", str(by["insurance"]))
+    check("ingest: a negative expense line is flagged NEGATIVE",
+          by["utilities"]["flag"] == "NEGATIVE", str(by["utilities"]))
+    check("ingest: an on-benchmark line is still unflagged",
+          by["rm"]["flag"] == "", str(by["rm"]))
+
+    # intake must refuse to --apply a T-12 that parsed to nothing.
+    src = open(os.path.join(os.path.dirname(parsers.__file__), "intake.py")).read()
+    check("ingest: intake aborts on a supplied T-12 that parsed zero lines",
+          "ZERO expense lines were parsed" in src)
+    check("ingest: and that gate only bites under --apply",
+          "not t12_lines and args.apply" in src)
+
+    # The live deal #1 rent roll must be unaffected by any of this.
+    import pymodel
+    r = pymodel.run(dict(pymodel._load_deal("eden-church-mhp")))
+    check("ingest: eden still reproduces its carried NOI",
+          abs(r["noi"][1] - 143_474) < 500, f"got {r['noi'][1]:,.0f}")
 
 
 if __name__ == "__main__":

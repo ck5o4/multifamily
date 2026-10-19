@@ -236,19 +236,6 @@ def infer_parish(location):
         return None, (f"{location!r} names a parish that is not in the millage "
                       f"table. Known: {', '.join(sorted(MILLAGE))}")
 
-    # Parish names we do NOT carry that contain a town we DO: without this,
-    # "Jennings, Jefferson Davis, LA" (no literal "parish", so the branch above
-    # does not fire) matched the town "jefferson" and took Jefferson Parish's
-    # 118.40 millage and $3,000 wind basis for an inland rice-country deal.
-    # F4 named Jefferson Davis as its own counterexample; it only ever held
-    # for the spelling that includes the word "parish".
-    _norm_loc = _norm(location)
-    for _confusable in _CONFUSABLE_PARISHES:
-        if re.search(r"\b" + re.escape(_confusable) + r"\b", _norm_loc):
-            return None, (f"{location!r} names {_confusable.title()} Parish, "
-                          f"which is not in the millage table. Known: "
-                          f"{', '.join(sorted(MILLAGE))}")
-
     # A non-Louisiana state makes every town match meaningless: "Jefferson, TX"
     # resolved to Jefferson Parish and took the Louisiana 118.40 millage.
     st = re.search(r"\b([a-z]{2})\b\s*(\d{5}(-\d{4})?)?$", _norm(location))
@@ -257,6 +244,44 @@ def infer_parish(location):
                       f"(state {st.group(1).upper()})")
 
     tokens = _norm(location).split()
+
+    # Sweep 2026-10-19. A match is only evidence of a LOCALITY if it is not
+    # part of something else. Two things it can be part of, both reproduced:
+    #
+    #   1. A street name. 10-12 tested only the token immediately after the
+    #      match, which misses the head of a longer town name: in
+    #      "Gretna - 1 Central City Rd" the match "central" (East Baton Rouge)
+    #      is followed by "city", not a suffix, so it scored CLEAN and beat
+    #      Gretna on end_index - asserting "matched town 'central' in East
+    #      Baton Rouge Parish" and taking the $2,000 inland insurance basis on
+    #      a Jefferson property. On the real treme-gov-nicholls record the same
+    #      Orleans->EBR slip moves the 13% rung $714,000 -> $817,000
+    #      ($103,000 overstated). Extending the match to the LONGEST town that
+    #      still starts at i and testing the suffix there catches it.
+    #   2. A parish we do not carry whose name begins with a town we do:
+    #      "Jennings, Jefferson Davis, LA" must not resolve to Jefferson.
+    #      This used to be a hard bail before any town matching, which meant a
+    #      real Orleans address on a street named for that parish resolved to
+    #      nothing at all: "1234 Jefferson Davis Pkwy, New Orleans, LA 70119"
+    #      returned None, froze taxes across the solve, and put the 13% rung at
+    #      $748,000 against a correct Orleans $522,000. Demoting the match
+    #      instead lets the explicit "new orleans" win while the Jennings case
+    #      still resolves to nothing.
+    def _not_a_locality(i, n):
+        longest = n
+        for city2, _ in CITY_TO_PARISH.items():
+            ct2 = city2.split()
+            if len(ct2) > longest and tokens[i:i + len(ct2)] == ct2:
+                longest = len(ct2)
+        after = tokens[i + longest] if i + longest < len(tokens) else ""
+        if after in _STREET_SUFFIXES:
+            return True
+        for conf in _CONFUSABLE_PARISHES:
+            cft = conf.split()
+            if n <= len(cft) and tokens[i:i + len(cft)] == cft:
+                return True
+        return False
+
     best = None   # (not_in_a_street_name, n_words, end_index, parish)
     for city, par in CITY_TO_PARISH.items():
         ct = city.split()
@@ -284,15 +309,29 @@ def infer_parish(location):
             # name. A town immediately followed by a street-type suffix is, so
             # it is demoted below any match that is not. That resolves both
             # directions, and single-city strings never exercise it at all.
-            nxt = tokens[i + n] if i + n < len(tokens) else ""
-            in_street_name = nxt in _STREET_SUFFIXES
-            cand = (not in_street_name, n, i + n, par)
+            cand = (not _not_a_locality(i, n), n, i + n, par)
             if best is None or cand[:3] > best[:3]:
                 best = cand
-    if best:
+    if best and best[0]:
         _clean, n, end, par = best
         return par, (f"matched town {' '.join(tokens[end-n:end])!r} "
                      f"in {par.title()} Parish")
+    if best:
+        # Every candidate sat inside a street name or a parish we do not carry.
+        # 10-12's demotion only ever RANKED candidates, so when they were all
+        # demoted the best one was still asserted as fact: "100 Harvey Ln" came
+        # back as Jefferson Parish with the $3,000/unit coastal basis, and
+        # swapping two street names flipped the answer - "100 Baker Rd & Harvey
+        # Ln" -> Jefferson vs "100 Harvey Ln & Baker Rd" -> East Baton Rouge,
+        # $132,000 of clearing price from token order alone. Returning None
+        # hands the caller its own loud unresolved path (defaults.derive,
+        # pymodel.solve_price and solve.solve_price all have one) instead of a
+        # confident guess.
+        _clean, n, end, par = best
+        return None, (f"no locality found in {location!r} - "
+                      f"{' '.join(tokens[end-n:end])!r} appears only inside a "
+                      f"street name or a parish not in the millage table, so "
+                      f"it is not evidence of where the property is")
     return None, (f"no known Louisiana town found in {location!r}")
 
 

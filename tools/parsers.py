@@ -268,6 +268,7 @@ def _rent_records(rows):
     still counts; parse_rent_roll imputes the rent from the type median."""
     hi, idx = _find_header(rows)
     recs, fallback, rnotes = [], False, []
+    dropped_rent, bad_count, blank_count = [], [], []
 
     if hi is not None:
         cnt_seq = []
@@ -299,13 +300,35 @@ def _rent_records(rows):
             elif rent in (None, 0.0):
                 rent = None  # vacant/subsidy unit: keep it in the count
             else:
-                continue  # nonzero but implausible - junk row
+                # Sweep 2026-10-19: this dropped the row with NO note of any
+                # kind, against tools/README.md's "Nothing is silently
+                # dropped." A 30-pad park with 8 pads on legacy $185 lot rents
+                # parsed as 22 units: equity $622,648 against a true $509,838
+                # ($112,810 overstated), price-per-unit $40,909 against
+                # $30,000. Sub-$200 pad rents are routine in rural Louisiana
+                # parks and MHP is the stated #1 target class, so the
+                # false-FAIL direction here kills exactly the deals the buy box
+                # is aimed at. The bound still rejects the row - a $12 "rent"
+                # is junk - but it now says so.
+                dropped_rent.append((label, rent))
+                continue
             sf = to_num(get("sf"))
             if sf is not None and not (SF_MIN <= sf <= SF_MAX):
                 sf = None
-            cnt = to_num(get("count")) if "count" in idx else None
+            cnt_raw = get("count") if "count" in idx else None
+            cnt = to_num(cnt_raw) if "count" in idx else None
             if cnt is not None and not (0 < cnt <= COUNT_MAX):
                 cnt = None
+            if cnt is None and "count" in idx and str(cnt_raw or "").strip() != "":
+                # A count cell that is present but unparseable ("24*", a
+                # footnote marker, a stray range) silently became 1 unit.
+                # Sweep 2026-10-19: "# of Units" of 24 then blank parsed as 25
+                # units instead of 36; "24*" parsed as 13. Equity overstated
+                # $953,738 on a 36-unit deal, IRR off by 8.76 points, zero
+                # notes either time.
+                bad_count.append((label, str(cnt_raw).strip()))
+            elif cnt is None and "count" in idx:
+                blank_count.append(label)
             if cnt is not None:
                 cnt_seq.append(cnt)
             recs.append({"label": label, "bb": bb, "sf": sf, "rent": rent, "count": cnt or 1.0})
@@ -360,6 +383,26 @@ def _rent_records(rows):
                           f"${median(all_rents):,.0f} / max ${max(all_rents):,.0f} - verify "
                           "the rent is not a deposit or SF column.")
 
+    if dropped_rent:
+        shown = "; ".join(f"{lab!r} rent {r:,.0f}" for lab, r in dropped_rent[:6])
+        rnotes.append(
+            f"DROPPED {len(dropped_rent)} row(s) whose rent fell outside "
+            f"${RENT_MIN:,}-${RENT_MAX:,} and are NOT in the unit count: {shown}"
+            + (" ..." if len(dropped_rent) > 6 else "")
+            + ". Legacy sub-$200 pad rents and master-lease rows look like this "
+              "- if these are real units, the unit count and every per-unit "
+              "figure below are understated.")
+    if bad_count:
+        shown = "; ".join(f"{lab!r}={val!r}" for lab, val in bad_count[:6])
+        rnotes.append(
+            f"{len(bad_count)} row(s) had an UNPARSEABLE count cell and were "
+            f"counted as 1 unit each: {shown}"
+            + (" ..." if len(bad_count) > 6 else "")
+            + ". Verify the unit count before trusting any per-unit figure.")
+    if blank_count:
+        rnotes.append(
+            f"{len(blank_count)} row(s) had a BLANK count cell and were counted "
+            f"as 1 unit each. Verify the unit count.")
     return recs, fallback, rnotes
 
 
@@ -764,6 +807,21 @@ def compare_to_benchmarks(t12_lines, units, benchmarks, tol=0.25):
             dev = pu / bm["current"] - 1
             if abs(dev) > tol:
                 flag = "HIGH" if dev > 0 else "LOW"
+        elif pu is not None and pu <= 0:
+            # Sweep 2026-10-19: the gate was `pu > 0`, so the single most
+            # extreme value possible printed with a blank deviation AND a blank
+            # flag. A statement line "Insurance,0" parses to 0.0, is written as
+            # a real $0/unit expense, and marks insurance as taken from the
+            # deal's own documents - so defaults.derive's $2,000 inland /
+            # $3,000 wind value never fires. On a 12-unit Gretna deal at
+            # $950,000 that is NOI $92,546 against $56,546, going-in cap 9.74%
+            # against 5.95%, equity understated $185,991 and levered IRR
+            # +14.97% against +1.45% - a 13.52-point swing that crosses the 13%
+            # pursue floor, with 0 formula errors and all 12 checks OK.
+            # Reachable on ordinary statements: insurance escrowed inside debt
+            # service, carried at portfolio level, or prepaid outside the T-12
+            # window. Literal zeros are real in this repo's own files.
+            flag = "ZERO" if pu == 0 else "NEGATIVE"
         rows.append({"key": key, "actual_per_unit": pu, "current": bm["current"],
                      "stoa": bm["stoa"], "deviation": dev, "flag": flag})
     return rows

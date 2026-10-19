@@ -464,6 +464,37 @@ def main():
             f"--accept-part-year if you have confirmed\n"
             f"    this statement really does cover twelve months.")
 
+    # Sweep 2026-10-19: there was a gate for a T-12 that parsed without a unit
+    # count, and none for a T-12 that was SUPPLIED and parsed to NOTHING. A
+    # Yardi/AppFolio CONTROLLABLE/NON-CONTROLLABLE statement in a
+    # "Line Item | Amount" layout makes _find_total_col choose the LABEL column
+    # as its totals column and the last row as its header row, so every row at
+    # or above it is skipped: all nine expense lines, $202,200/yr, dropped. The
+    # run then completed on template defaults and printed "No T-12 expense
+    # lines matched. Check the file layout." BELOW the verdict. Workbook-
+    # verified on a 24-unit deal at $1,200,000: NOI $116,559 against a true
+    # $64,999, going-in cap 9.71% against 5.42%, equity $333,000 against
+    # $626,973 ($293,973 understated, which against ~$300K of capital is the
+    # difference between unfundable and fundable), and levered IRR +13.05%
+    # against -1.45% - clearing the 13% pursue floor on a deal that fails.
+    # 0 formula errors, 12/12 checks OK. The parser defect itself is flagged
+    # for a human session; this gate stops the confident wrong number.
+    _t12_supplied = bool(getattr(args, "t12", None)) or any(
+        "expense lines" in n or "No T-12 expense lines matched" in n
+        for n in all_notes)
+    if _t12_supplied and not t12_lines and args.apply:
+        raise SystemExit(
+            "  ABORT: a T-12 was supplied but ZERO expense lines were parsed "
+            "from it.\n"
+            "    The model would keep its template defaults, which are lower "
+            "than any real operating\n"
+            "    statement - NOI, cap rate and IRR would all come out "
+            "overstated, with every check OK.\n"
+            "    Check the file layout (a 'Line Item | Amount' sheet with no "
+            "totals-column header and a\n"
+            "    'Total Operating Expenses' row is the known failure), or pass "
+            "the lines with --set.")
+
     if t12_lines and not units:
         raise SystemExit(
             "  ABORT: a T-12 parsed but the unit count is unknown, so every expense "
